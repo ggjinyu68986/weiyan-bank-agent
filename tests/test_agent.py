@@ -148,3 +148,26 @@ def test_lock_funds_via_agent():
     out = o.confirm(r.pending_id)
     assert out.requires == "auto"
     assert "已锁定" in out.message
+
+
+def test_birthday_plan_dag():
+    """场景6：『我爱人生日』→ DAG：锁资金 → 订鲜花 → 订蛋糕，逐节点确认。"""
+    o = make()
+    r1 = o.handle("我爱人生日")
+    assert r1.requires == "confirm"  # n1 lock_funds
+    assert "跨场景计划" in r1.message
+    assert "1/3" in r1.message
+    r2 = o.confirm(r1.pending_id)
+    assert r2.requires == "confirm"  # n2 order_gift(鲜花)
+    assert "2/3" in r2.message
+    r3 = o.confirm(r2.pending_id)
+    assert r3.requires == "confirm"  # n3 order_gift(蛋糕)
+    assert "3/3" in r3.message
+    r4 = o.confirm(r3.pending_id)
+    assert r4.requires == "auto"  # 全部完成
+    assert "已全部完成" in r4.message
+    # 资金已锁定、两个订单已下达
+    assert o.service.store.accounts["6222-0001"].locked_cents == 100_000
+    assert len(o.service.store.orders) == 2
+    # 审计留有 DAG 记录
+    assert any(rec.action == "plan" for rec in o.audit)

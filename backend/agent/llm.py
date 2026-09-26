@@ -36,6 +36,7 @@ def _load_dotenv() -> None:
 class LLMReply:
     text: str = ""
     tool_calls: list[dict] = field(default_factory=list)  # [{name, arguments(dict)}]
+    plan: list[dict] = field(default_factory=list)  # DAG 计划：[{id,tool,params,depends}]
 
 
 class BaseLLM:
@@ -151,6 +152,20 @@ class MockLLM(BaseLLM):
             return self._tool("list_subscriptions", {"user_id": 1})
 
         # ---- 场景6 跨场景联动 ----
+        if "生日" in text and any(k in text for k in ("爱人", "老婆")):
+            # 事件 E-001：爱人生日 2026-12-20 → DAG：锁定 1000 元 → 生日前 2 天订购鲜花+蛋糕
+            return LLMReply(
+                plan=[
+                    {"id": "n1", "tool": "lock_funds",
+                     "params": {"account_id": USER_ACCOUNT, "amount_cents": 100_000, "note": "爱人生日预算"}},
+                    {"id": "n2", "tool": "order_gift",
+                     "params": {"account_id": USER_ACCOUNT, "merchant": "某某鲜花店",
+                                "amount_cents": 20_000, "note": "爱人生日礼物"}, "depends": ["n1"]},
+                    {"id": "n3", "tool": "order_gift",
+                     "params": {"account_id": USER_ACCOUNT, "merchant": "某某蛋糕店",
+                                "amount_cents": 15_000, "note": "爱人生日蛋糕"}, "depends": ["n1"]},
+                ]
+            )
         if any(k in text for k in ("锁定", "预留", "生日预算")):
             return self._tool("lock_funds", {
                 "account_id": USER_ACCOUNT, "amount_cents": (_extract_yuan(text) or 1000) * 100,

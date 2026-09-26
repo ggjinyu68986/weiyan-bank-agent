@@ -64,6 +64,18 @@ EXECUTORS = {
 }
 
 
+_TOOL_CN = {
+    "query_balance": "余额查询", "list_transactions": "交易查询", "analyze_bills": "账单分析",
+    "transfer": "转账", "schedule_transfer": "定时转账", "split_bill": "AA收款",
+    "wealth_products": "理财查询", "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
+    "apply_virtual_card": "虚拟卡申请", "adjust_card_limit": "额度调整",
+    "report_card_loss": "卡片挂失", "unlock_card": "卡片解挂",
+    "list_subscriptions": "订阅查询", "cancel_subscription": "取消订阅",
+    "detect_subscriptions": "订阅识别", "subscription_reminders": "续费提醒",
+    "lock_funds": "资金锁定", "order_gift": "礼品订购",
+}
+
+
 @dataclass
 class AgentReply:
     requires: str  # auto / confirm / mfa / deny / chat
@@ -111,11 +123,15 @@ class AgentOrchestrator:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}, *self.history]
         reply = self.llm.complete(messages, tools=self.tools)
 
-        if not reply.tool_calls:  # 纯对话（追问/澄清/闲聊）
+        if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
             out = AgentReply("chat", reply.text or "（无可用操作）")
             self._log(user_msg, "", {}, "", "chat", "", out.message)
             self.history.append({"role": "assistant", "content": out.message})
             return out
+
+        if reply.plan:  # 跨场景联动：DAG 计划（有序子任务，逐节点过权限门）
+            self._log(user_msg, "", {}, "yellow", "plan", "", f"解析为 {len(reply.plan)} 节点 DAG")
+            return self._run_plan(reply.plan, user_msg, user_state or self.user_state)
 
         tc = reply.tool_calls[0]
         tool, params = tc["name"], tc.get("arguments", {})
@@ -128,7 +144,7 @@ class AgentOrchestrator:
 
         if decision.action in (ACTION_CONFIRM, ACTION_MFA):
             pid = f"p{len(self._pending) + 1}"
-            self._pending[pid] = {"tool": tool, "params": params, "action": decision.action}
+            self._pending[pid] = {"kind": "single", "tool": tool, "params": params, "action": decision.action}
             need = "用户确认" if decision.action == ACTION_CONFIRM else "多因子强验证"
             self.history.append({"role": "assistant", "content": f"需要{need}：{decision.reason}"})
             return AgentReply(decision.action, decision.reason, tool=tool, params=params, pending_id=pid)
@@ -137,11 +153,59 @@ class AgentOrchestrator:
         self.history.append({"role": "assistant", "content": decision.reason})
         return AgentReply("deny", decision.reason, tool=tool, params=params)
 
+    # ---------- DAG 计划执行（场景6 跨场景联动） ----------
+    def _run_plan(self, plan: list[dict], user_msg: str, user_state: dict) -> AgentReply:
+        """按拓扑序推进计划：auto 节点直接执行，confirm/mfa 节点逐个挂起，deny 中止整计划。"""
+        self._plan_done: list[tuple[str, str]] = []
+        return self._plan_step(plan, 0, user_msg, user_state)
+
+    def _plan_step(self, plan, idx, user_msg, user_state) -> AgentReply:
+        i = idx
+        while i < len(plan):
+            node = plan[i]
+            tool, params = node["tool"], node.get("params", {})
+            decision = decide(self.registry, tool, params, user_state)
+            risk = decision.spec.get("risk", "?") if decision.spec else "?"
+            self._log(f"(DAG#{i + 1}){tool}", tool, params, risk, decision.action, "", decision.reason)
+            if decision.action == ACTION_AUTO:
+                r = self._execute(tool, params, f"(DAG#{i + 1}){user_msg}", decision.reason)
+                if r.requires != "auto":
+                    return r  # 执行失败（deny）
+                self._plan_done.append((tool, r.execution_id))
+                i += 1
+                continue
+            if decision.action in (ACTION_CONFIRM, ACTION_MFA):
+                pid = f"p{len(self._pending) + 1}"
+                self._pending[pid] = {"kind": "plan", "plan": plan, "idx": i, "tool": tool,
+                                      "params": params, "action": decision.action}
+                need = "确认" if decision.action == ACTION_CONFIRM else "多因子强验证"
+                summary = self._plan_summary(plan)
+                msg = f"跨场景计划（{summary}）进行到第 {i + 1}/{len(plan)} 步，需要你的{need}：{decision.reason}"
+                self.history.append({"role": "assistant", "content": msg})
+                return AgentReply(decision.action, msg, tool=tool, params=params, pending_id=pid)
+            # deny（如未注册工具）→ 中止整个计划，已执行节点不受影响
+            out = AgentReply("deny", f"计划中止：步骤「{tool}」被权限门拒绝（{decision.reason}）", tool=tool, params=params)
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+        return AgentReply("auto", self._plan_summary(plan, done=self._plan_done))
+
+    def _plan_summary(self, plan, done=None) -> str:
+        names = {n["tool"]: _TOOL_CN.get(n["tool"], n["tool"]) for n in plan}
+        outline = " → ".join(names[n["tool"]] for n in plan)
+        if done is None:
+            return outline
+        if not done:
+            return f"「{outline}」已全部完成"
+        lines = "；".join(f"{_TOOL_CN.get(t, t)}（{e[:8]}）" for t, e in done)
+        return f"「{outline}」已全部完成：{lines}"
+
     # ---------- 确认/强验证后的执行（再次过权限门） ----------
     def confirm(self, pending_id: str, user_state: dict | None = None) -> AgentReply:
         p = self._pending.pop(pending_id, None)
         if not p:
             return AgentReply("deny", "无效的确认凭证，请重新发起操作")
+        if p["kind"] == "plan":
+            return self._plan_resume(p, user_state or self.user_state)
         decision = decide(self.registry, p["tool"], p["params"], user_state or self.user_state)
         if decision.action != ACTION_CONFIRM:
             return AgentReply(decision.action, decision.reason, tool=p["tool"], params=p["params"])
@@ -154,7 +218,25 @@ class AgentOrchestrator:
             return AgentReply("deny", "无效的验证凭证，请重新发起操作")
         if mfa_code != "123456":
             return AgentReply("deny", "验证码错误，操作未执行")
+        if p["kind"] == "plan":
+            return self._plan_resume(p, self.user_state, mfa_ok=True)
         return self._execute(p["tool"], p["params"], "(强验证通过后执行)", "多因子验证通过")
+
+    def _plan_resume(self, p: dict, user_state: dict, mfa_ok: bool = False) -> AgentReply:
+        """DAG 节点确认/强验证通过后：执行该节点并继续推进计划。"""
+        plan, idx = p["plan"], p["idx"]
+        tool, params = p["tool"], p["params"]
+        decision = decide(self.registry, tool, params, user_state)
+        allowed = decision.action in (ACTION_CONFIRM, ACTION_MFA)
+        if mfa_ok and decision.action != ACTION_MFA:
+            return AgentReply("deny", "该节点无需强验证，操作未执行", tool=tool, params=params)
+        if not allowed:
+            return AgentReply(decision.action, decision.reason, tool=tool, params=params)
+        r = self._execute(tool, params, f"(DAG#{idx + 1} 确认后执行)", decision.reason)
+        if r.requires != "auto":
+            return r
+        self._plan_done.append((tool, r.execution_id))
+        return self._plan_step(plan, idx + 1, "(继续执行计划)", user_state)
 
     # ---------- 内部 ----------
     def _execute(self, tool: str, params: dict, user_msg: str, reason: str) -> AgentReply:
