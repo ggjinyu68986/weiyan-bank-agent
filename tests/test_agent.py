@@ -77,6 +77,17 @@ def test_audit_logged():
     assert entry.action == "confirm"
 
 
+def test_daily_cumulative_upgrade():
+    """同日第二笔转账超 1000 元限额 → 自动升级红级强验证。"""
+    o = make()
+    r1 = o.handle("给妈妈转800元")
+    assert r1.requires == "confirm"
+    assert o.confirm(r1.pending_id).requires == "auto"
+    # 今日已转 800，再转 500 = 1300 > 1000 → 升级
+    r2 = o.handle("再给妈妈转500元")
+    assert r2.requires == "mfa"
+
+
 def test_subscriptions_query():
     o = make()
     r = o.handle("我有啥订阅")

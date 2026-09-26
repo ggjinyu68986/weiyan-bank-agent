@@ -66,6 +66,15 @@ class AgentOrchestrator:
         self.history: list[dict] = []
         self.audit: list[AuditRecord] = []
         self._pending: dict[str, dict] = {}
+        # 会话内"今日累计转账"跟踪：超 1000 元自动升级红级（黄→红）
+        self.user_state: dict = {"today_transfer_cents": 0}
+
+    def reset(self) -> None:
+        """重置会话（演示/测试用）：清历史、清待确认、重置银行数据；审计保留。"""
+        self.history = []
+        self.user_state = {"today_transfer_cents": 0}
+        self._pending = {}
+        self.service.store.reset()
 
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:
@@ -81,7 +90,7 @@ class AgentOrchestrator:
 
         tc = reply.tool_calls[0]
         tool, params = tc["name"], tc.get("arguments", {})
-        decision = decide(self.registry, tool, params, user_state or {"today_transfer_cents": 0})
+        decision = decide(self.registry, tool, params, user_state or self.user_state)
         risk = decision.spec.get("risk", "?") if decision.spec else "?"
         self._log(user_msg, tool, params, risk, decision.action, "", decision.reason)
 
@@ -104,7 +113,7 @@ class AgentOrchestrator:
         p = self._pending.pop(pending_id, None)
         if not p:
             return AgentReply("deny", "无效的确认凭证，请重新发起操作")
-        decision = decide(self.registry, p["tool"], p["params"], user_state or {"today_transfer_cents": 0})
+        decision = decide(self.registry, p["tool"], p["params"], user_state or self.user_state)
         if decision.action != ACTION_CONFIRM:
             return AgentReply(decision.action, decision.reason, tool=p["tool"], params=p["params"])
         return self._execute(p["tool"], p["params"], "(用户确认后执行)", decision.reason)
@@ -131,6 +140,9 @@ class AgentOrchestrator:
             out = AgentReply("deny", f"执行失败：{r.message}", execution_id=r.execution_id, tool=tool, params=params)
             self.history.append({"role": "assistant", "content": out.message})
             return out
+        # 转账成功 → 计入今日累计（日限额升级的依据）
+        if tool == "transfer":
+            self.user_state["today_transfer_cents"] += params.get("amount_cents", 0)
         out = AgentReply("auto", _summarize(tool, r), execution_id=r.execution_id, tool=tool, params=params)
         self.history.append({"role": "assistant", "content": out.message})
         return out

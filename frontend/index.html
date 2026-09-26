@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微言 · AI 银行智能体</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">微</div>
+    <div>
+      <div class="title">微言 · AI 银行智能体</div>
+      <div class="subtitle">说话就能办业务 · 2026 FinTechathon</div>
+    </div>
+  </div>
+  <div class="actions">
+    <button id="btnAudit" class="btn ghost">审计日志</button>
+    <button id="btnReset" class="btn ghost">重置演示</button>
+  </div>
+</header>
+
+<main id="chat">
+  <div class="bubble assistant first">
+    <div class="meta">微言</div>
+    <div class="text">你好，我是微言。试着对我说：<br>
+      「帮我看看余额」·「给妈妈转800元」·「转5万元给妈妈」·「我有哪些订阅」
+    </div>
+  </div>
+</main>
+
+<footer>
+  <input id="input" type="text" placeholder="说一句你想办的事…" autocomplete="off">
+  <button id="send" class="btn primary">发送</button>
+</footer>
+
+<!-- MFA 验证码弹层 -->
+<div id="mfaMask" class="mask hidden">
+  <div class="mfa-card">
+    <div class="mfa-title">多因子强验证（红级操作）</div>
+    <div id="mfaDesc" class="mfa-desc"></div>
+    <input id="mfaCode" class="mfa-input" placeholder="输入短信验证码" autocomplete="off">
+    <div class="mfa-hint">演示验证码：123456</div>
+    <div class="mfa-actions">
+      <button id="mfaCancel" class="btn ghost">取消</button>
+      <button id="mfaOk" class="btn primary">验证并执行</button>
+    </div>
+  </div>
+</div>
+
+<!-- 审计日志弹层 -->
+<div id="auditMask" class="mask hidden">
+  <div class="audit-card">
+    <div class="mfa-title">操作审计 · 决策链路</div>
+    <div id="auditBody" class="audit-body"></div>
+    <div class="mfa-actions"><button id="auditClose" class="btn ghost">关闭</button></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
