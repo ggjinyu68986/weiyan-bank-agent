@@ -317,8 +317,11 @@ def _summarize(tool: str, r) -> str:
             + "；".join(f"{a['counterparty']}（{a['reason']}）" for a in d["anomalies"])
         )
     if tool == "wealth_products":
-        prods = "、".join(f"{p['name']}（年化{p['rate']}）" for p in d["products"])
-        holdings = "、".join(f"{p['name']} {p['amount_cents'] / 100:.2f}元" for p in d["holdings"]) or "暂无持仓"
+        prods = "、".join(f"{p['name']}（年化{p['expected_return'] * 100:.1f}%）" for p in d["products"])
+        holdings = "、".join(
+            f"{next((q['name'] for q in d['products'] if q['id'] == h['product_id']), h['product_id'])} "
+            f"{h['amount_cents'] / 100:.2f}元" for h in d["holdings"]
+        ) or "暂无持仓"
         return f"在售 {len(d['products'])} 款产品：{prods}；当前持仓：{holdings}"
     if tool in ("buy_wealth", "redeem_wealth"):
         return f"{r.message}：{d['product']} {d['amount_cents'] / 100:.2f} 元"
