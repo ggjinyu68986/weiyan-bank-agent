@@ -92,6 +92,8 @@ class MockLLM(BaseLLM):
             return self._tool("query_balance", {"account_id": USER_ACCOUNT})
         if any(k in text for k in ("流水", "明细")):
             return self._tool("list_transactions", {"account_id": USER_ACCOUNT, "limit": 20})
+        if any(k in text for k in ("年度", "全年", "今年账单")):
+            return self._tool("annual_report", {"account_id": USER_ACCOUNT, "year": 2026})
         if any(k in text for k in ("账单", "花了", "消费", "异常", "可疑")):
             month = 9 if ("这个月" in text or "9月" in text or "本月" in text) else None
             return self._tool("analyze_bills", {"account_id": USER_ACCOUNT, "month": month})
@@ -105,8 +107,10 @@ class MockLLM(BaseLLM):
                 "next_run": "2026-10-05", "cycle_days": 7 if "每周" in text else 0,
             })
         if "转" in text:
+            m = re.search(r"1\d{10}", text)  # 按手机号转账（赛题示例）
             return self._tool("transfer", {
-                "from_account_id": USER_ACCOUNT, "to_account_id": self._pick_to(text),
+                "from_account_id": USER_ACCOUNT,
+                "to_account_id": m.group(0) if m else self._pick_to(text),
                 "amount_cents": _extract_yuan(text) * 100,
                 "note": "给" + ("妈妈" if "妈妈" in text else ("老婆" if ("老婆" in text or "爱人" in text) else "家人")),
             })
@@ -126,6 +130,10 @@ class MockLLM(BaseLLM):
             return self._tool("redeem_wealth", {
                 "user_id": 1, "product_id": "WP-001", "amount_cents": (_extract_yuan(text) or 1000) * 100,
             })
+        if any(k in text for k in ("对比", "哪个", "比较")) and "理财" in text:
+            return self._tool("wealth_compare", {"product_ids": ["WP-001", "WP-002", "WP-003"]})
+        if any(k in text for k in ("风险测评", "风险评估", "测风险", "风险等级")):
+            return self._tool("risk_assessment", {"user_id": 1})
         if "理财" in text or "产品" in text:
             return self._tool("wealth_products", {"user_id": 1})
 
@@ -136,10 +144,16 @@ class MockLLM(BaseLLM):
             return self._tool("report_card_loss", {"card_id": "C-0001"})
         if "解挂" in text:
             return self._tool("unlock_card", {"card_id": "C-0001"})
+        if "冻结" in text:
+            return self._tool("freeze_card", {"card_id": "C-0001"})
+        if "解冻" in text:
+            return self._tool("unfreeze_card", {"card_id": "C-0001"})
         if "额度" in text:
             return self._tool("adjust_card_limit", {
                 "card_id": "C-0001", "new_limit_cents": (_extract_yuan(text) or 20000) * 100,
             })
+        if any(k in text for k in ("改密码", "修改密码", "换密码")):
+            return self._tool("change_password", {"user_id": 1, "new_password": "NewPass2026"})
 
         # ---- 场景5 订阅 ----
         if any(k in text for k in ("退订", "取消订阅")):

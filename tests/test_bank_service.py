@@ -245,3 +245,58 @@ def test_run_due_events_birthday():
     assert len(svc.store.orders) == 2
     # 已触发：重复拨动不重复下单
     assert svc.run_due_events("2026-12-20").data["fired_count"] == 0
+
+
+# ========== 赛题差距补全：手机号转账 / 年度账单 / 风险评估 / 理财对比 / 密码 / 冻结 ==========
+def test_transfer_by_phone():
+    """按手机号转账（13900139000 = 妈妈）→ 落到妈妈账户 6222-1001。"""
+    svc = BankService()
+    r = svc.transfer("6222-0001", "13900139000", 60_000, note="转给妈妈")
+    assert r.ok
+    assert svc.get_balance("6222-1001").data["balance_cents"] == 2_000_000 + 60_000
+
+
+def test_transfer_by_unknown_phone():
+    r = BankService().transfer("6222-0001", "19999999999", 100)
+    assert not r.ok
+    assert r.code == "ACCOUNT_NOT_FOUND"
+
+
+def test_annual_report():
+    svc = BankService()
+    r = svc.annual_report("6222-0001", 2026)
+    assert r.ok
+    assert r.data["year"] == 2026
+    assert r.data["month_count"] >= 1
+    assert r.data["total_expense_cents"] < 0
+    assert len(r.data["top_categories"]) >= 1
+
+
+def test_risk_assessment():
+    r = BankService().risk_assessment(1)
+    assert r.ok
+    assert r.data["level"] == "low"
+    assert r.data["matched_products"]
+
+
+def test_wealth_compare():
+    r = BankService().wealth_compare(["WP-001", "WP-002", "WP-003"])
+    assert r.ok
+    assert len(r.data["compare"]) == 3
+    assert r.data["compare"][0]["expected_return"] <= r.data["compare"][-1]["expected_return"]
+
+
+def test_change_password_strength():
+    svc = BankService()
+    assert not svc.change_password(1, "123").ok  # 太短
+    assert not svc.change_password(1, "12345678").ok  # 过于简单
+    r = svc.change_password(1, "Weiyan2026!")
+    assert r.ok
+
+
+def test_freeze_unfreeze_card():
+    svc = BankService()
+    assert svc.freeze_card("C-0001").data["status"] == "frozen"
+    assert svc.store.cards["C-0001"].locked is True
+    assert svc.unfreeze_card("C-0001").data["status"] == "active"
+    assert svc.store.cards["C-0001"].locked is False

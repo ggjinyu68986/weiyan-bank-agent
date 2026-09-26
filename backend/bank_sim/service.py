@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timedelta
 
 from .models import (
@@ -146,7 +147,7 @@ class BankService:
                 prev["data"], message="重放（幂等命中），返回原执行结果", execution_id=prev["execution_id"]
             )
         src = self._account(from_account_id)
-        dst = self._account(to_account_id)
+        dst = self._resolve_account(to_account_id)
         if not src:
             return OpResult.error("ACCOUNT_NOT_FOUND", f"转出账户不存在：{from_account_id}")
         if not dst:
@@ -457,9 +458,124 @@ class BankService:
             message=f"事件触发完成（{len(fired)} 个事件）",
         )
 
+    # ========== 场景2 扩展：年度账单报告 ==========
+    def annual_report(self, account_id: str, year: int = 2026) -> OpResult:
+        """年度账单：按月汇总收支 + 支出分类 Top（赛题：月度/年度账单报告）。"""
+        acc = self._account(account_id)
+        if not acc:
+            return OpResult.error("ACCOUNT_NOT_FOUND", f"账户不存在：{account_id}")
+        txs = [t for t in self.store.transactions
+               if t.account_id == account_id and t.ts.year == year]
+        months: dict[int, dict] = {}
+        for t in txs:
+            m = t.ts.month
+            d = months.setdefault(m, {"month": m, "income_cents": 0, "expense_cents": 0, "count": 0})
+            d["count"] += 1
+            if t.amount_cents > 0:
+                d["income_cents"] += t.amount_cents
+            else:
+                d["expense_cents"] += t.amount_cents
+        total_income = sum(d["income_cents"] for d in months.values())
+        total_expense = sum(d["expense_cents"] for d in months.values())
+        cat: dict[str, int] = {}
+        for t in txs:
+            if t.amount_cents < 0:
+                key = t.category or "其他"
+                cat[key] = cat.get(key, 0) + t.amount_cents
+        top = sorted(cat.items(), key=lambda x: x[1])[:3]
+        return OpResult.success(
+            {
+                "year": year,
+                "month_count": len(months),
+                "months": sorted(months.values(), key=lambda x: x["month"]),
+                "total_income_cents": total_income,
+                "total_expense_cents": total_expense,
+                "top_categories": [{"category": k, "amount_cents": v} for k, v in top],
+            },
+            message=f"{year} 年度账单报告",
+        )
+
+    # ========== 场景3 扩展：风险评估 / 产品对比 ==========
+    def risk_assessment(self, user_id: int = 1) -> OpResult:
+        """风险评估：返回用户风险等级与适配产品（种子画像默认稳健型，可扩展问卷）。"""
+        level = "low"  # 演示：小明画像 = 低风险（保守稳健）
+        level_cn = "保守稳健型"
+        matched = [p for p in self.store.products.values() if p.risk_level == level]
+        return OpResult.success(
+            {
+                "user_id": user_id,
+                "level": level,
+                "level_cn": level_cn,
+                "matched_products": [p.model_dump(mode="json") for p in matched],
+                "advice": "建议以低风险固收类为主，可搭配稳健理财（年化 2.5%）。",
+            },
+            message="风险评估完成",
+        )
+
+    def wealth_compare(self, product_ids: list[str]) -> OpResult:
+        """理财对比：收益/风险/起购横向比较 + 结论建议。"""
+        prods = [self.store.products[p] for p in product_ids if p in self.store.products]
+        if not prods:
+            return OpResult.error("PRODUCT_NOT_FOUND", "未找到可对比的产品")
+        rows = sorted(prods, key=lambda p: p.expected_return)
+        return OpResult.success(
+            {
+                "compare": [
+                    {
+                        "id": p.id, "name": p.name, "risk_level": p.risk_level,
+                        "expected_return": p.expected_return,
+                        "min_amount_cents": p.min_amount_cents,
+                    }
+                    for p in rows
+                ],
+                "suggestion": f"追求稳健选「{rows[0].name}」，能接受波动选「{rows[-1].name}」",
+            },
+            message="产品对比完成",
+        )
+
+    # ========== 账户安全：密码修改（红级） ==========
+    def change_password(self, user_id: int, new_password: str) -> OpResult:
+        """密码修改（红级 MFA 后执行）。演示环境不落库，仅校验强度。"""
+        if not new_password or len(new_password) < 8:
+            return OpResult.error("WEAK_PASSWORD", "密码至少 8 位（建议包含字母和数字）")
+        if new_password == "12345678":
+            return OpResult.error("WEAK_PASSWORD", "密码过于简单，请更换")
+        return OpResult.success(
+            {"user_id": user_id, "changed": True},
+            message="密码修改成功",
+        )
+
+    # ========== 场景4 扩展：交易冻结/解冻 ==========
+    def freeze_card(self, card_id: str) -> OpResult:
+        card = self.store.cards.get(card_id)
+        if not card:
+            return OpResult.error("CARD_NOT_FOUND", f"卡片不存在：{card_id}")
+        card.locked = True
+        return OpResult.success({"card_id": card_id, "status": "frozen"}, message="卡片已冻结（暂停交易）")
+
+    def unfreeze_card(self, card_id: str) -> OpResult:
+        card = self.store.cards.get(card_id)
+        if not card:
+            return OpResult.error("CARD_NOT_FOUND", f"卡片不存在：{card_id}")
+        card.locked = False
+        return OpResult.success({"card_id": card_id, "status": "active"}, message="卡片已解冻（恢复交易）")
+
     # ========== 内部 ==========
     def _account(self, account_id: str):
         return self.store.accounts.get(account_id)
+
+    def _resolve_account(self, expr: str):
+        """按账户号或手机号解析收款账户（赛题：按人名/手机号/备注转账）。"""
+        acc = self.store.accounts.get(expr)
+        if acc:
+            return acc
+        if isinstance(expr, str) and re.fullmatch(r"1\d{10}", expr):
+            for u in self.store.users.values():
+                if u.phone == expr:
+                    for a in self.store.accounts.values():
+                        if a.user_id == u.id:
+                            return a
+        return None
 
     def _append_tx(self, account_id, kind, amount_cents, counterparty, category, note):
         self.store.transactions.append(

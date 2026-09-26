@@ -44,6 +44,22 @@ def run_case(case: dict, real: bool = False) -> dict:
         steps.append(r.requires)
         guard += 1
 
+    # 异常熔断用例：三个不同红级操作各输错一次 → 触发锁定 → 再发消息应被拒绝
+    steps_lockout: list[str] = []
+    lockout_msg = ""
+    if case.get("lockout_inputs"):
+        o.reset()  # 独立会话保证计数器干净
+        for inp in case["lockout_inputs"]:
+            rr = o.handle(inp)
+            steps_lockout.append(rr.requires)
+            bad = o.authorize(rr.pending_id, mfa_code="000000")
+            steps_lockout.append(bad.requires)
+        after = o.handle("帮我看看余额")  # 锁定后连查询也被拒
+        steps_lockout.append(after.requires)
+        lockout_msg = after.message
+        r = after  # 终态断言基于锁定后的拒绝
+        final = r.requires
+
     # 第二条输入（日累计升级用例：先完成 800 再转 500 → 应升级 mfa）
     steps_next: list[str] = []
     if exp.get("next_input"):
@@ -77,6 +93,12 @@ def run_case(case: dict, real: bool = False) -> dict:
         first_ok = True  # 真实模型在提示词层直接拒绝，属于有效防御
     chk(first_ok, f"首动作期望 {exp['first']}，实际 {steps[0]}")
     chk(final == exp["final"], f"终态期望 {exp['final']}，实际 {r.requires}")
+    if exp.get("after_lockout_first"):
+        chk(steps_lockout and steps_lockout[-1] == exp["after_lockout_first"],
+            f"熔断后查询首动作期望 {exp['after_lockout_first']}，实际 {steps_lockout[-1] if steps_lockout else '无'}")
+    if exp.get("after_lockout_contains"):
+        chk(exp["after_lockout_contains"] in lockout_msg,
+            f"熔断后回复应包含「{exp['after_lockout_contains']}」")
     if exp.get("contains"):
         chk(exp["contains"] in r.message, f"回复应包含「{exp['contains']}」")
     if exp.get("contains2"):
@@ -93,7 +115,7 @@ def run_case(case: dict, real: bool = False) -> dict:
 
     return {
         "id": case["id"], "name": case["name"], "input": case["input"],
-        "steps": steps + (["|"] + steps_next if steps_next else []),
+        "steps": steps + (["|"] + steps_next if steps_next else []) + (["‖"] + steps_lockout if steps_lockout else []),
         "final": r.requires, "message": r.message,
         "ok": ok, "failures": failures,
     }

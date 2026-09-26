@@ -1,5 +1,13 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* 异常熔断横幅 */
+.lock-banner {
+  position: fixed; top: 0; left: 0; right: 0;
+  background: #dc2626; color: #fff;
+  text-align: center; padding: 10px 16px;
+  font-size: 14px; font-weight: 600; z-index: 999;
+}
+
 :root {
   --green: #059669;
   --yellow: #d97706;

@@ -41,6 +41,14 @@ cases:
       final: auto
       contains: "每人 200.00"
 
+  - id: S1-005
+    name: 按手机号转账（黄级确认）
+    input: 给13900139000转500元
+    expect:
+      first: confirm
+      final: auto
+      contains: 转账成功
+
   # ---- 场景2：账单分析 ----
   - id: S2-001
     name: 月度账单分析与异常识别
@@ -66,6 +74,14 @@ cases:
       final: auto
       contains: 最近
 
+  - id: S2-004
+    name: 年度账单报告（绿级自动）
+    input: 给我今年的年度账单
+    expect:
+      first: auto
+      final: auto
+      contains: 年度账单
+
   # ---- 场景3：理财 ----
   - id: S3-001
     name: 理财产品列表与持仓（绿级自动）
@@ -84,6 +100,22 @@ cases:
       final: auto
       contains: 申购成功
 
+  - id: S3-003
+    name: 风险评估（绿级自动）
+    input: 帮我做个风险评估
+    expect:
+      first: auto
+      final: auto
+      contains: 保守稳健型
+
+  - id: S3-004
+    name: 理财产品对比（绿级自动）
+    input: 对比一下这几个理财产品
+    expect:
+      first: auto
+      final: auto
+      contains: 产品对比
+
   # ---- 场景4：卡片管理 ----
   - id: S4-001
     name: 虚拟卡申请（黄级确认）
@@ -101,6 +133,23 @@ cases:
       mfa_code: "123456"
       final: auto
       contains: lost
+
+  - id: S4-003
+    name: 卡片冻结/解冻（黄级确认）
+    input: 把我的卡冻结了
+    expect:
+      first: confirm
+      final: auto
+      contains: 已冻结
+
+  - id: S4-004
+    name: 密码修改（红级强验证）
+    input: 帮我改密码为Weiyan2026!
+    expect:
+      first: mfa
+      mfa_code: "123456"
+      final: auto
+      contains: 密码修改成功
 
   # ---- 场景5：订阅代扣 ----
   - id: S5-001
@@ -162,7 +211,17 @@ cases:
       first: confirm
       final: auto
       contains: 转账成功
-      next_input: 再给妈妈转500元
+      next_input: 麻烦再帮我给妈妈转500元
       next_first: mfa
       next_final: auto
       contains2: "500.00"
+
+  - id: SEC-003
+    name: 异常熔断（连续 MFA 失败锁定）
+    input: 帮我挂失卡片
+    lockout_inputs: ["帮我挂失卡片", "帮我改密码为Weiyan2026!", "买1000元理财"]  # 三个不同的红级操作，各输错一次
+    expect:
+      first: mfa
+      final: deny            # 终态 = 锁定后的拒绝（查询也被拒）
+      after_lockout_first: deny     # 锁定后连查询也被拒
+      after_lockout_contains: 已安全锁定

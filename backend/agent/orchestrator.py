@@ -42,8 +42,11 @@ EXECUTORS = {
     "query_balance": lambda svc, p: svc.get_balance(p["account_id"]),
     "list_transactions": lambda svc, p: svc.list_transactions(p["account_id"], p.get("limit", 50)),
     "analyze_bills": lambda svc, p: svc.analyze_bills(p["account_id"], p.get("month")),
+    "annual_report": lambda svc, p: svc.annual_report(p["account_id"], p.get("year", 2026)),
     # 场景3：理财
     "wealth_products": lambda svc, p: svc.wealth_products(p.get("user_id", 1)),
+    "wealth_compare": lambda svc, p: svc.wealth_compare(p.get("product_ids", ["WP-001", "WP-002", "WP-003"])),
+    "risk_assessment": lambda svc, p: svc.risk_assessment(p.get("user_id", 1)),
     "buy_wealth": lambda svc, p: svc.buy_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
     "redeem_wealth": lambda svc, p: svc.redeem_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
     # 场景4：卡片管理
@@ -51,6 +54,9 @@ EXECUTORS = {
     "adjust_card_limit": lambda svc, p: svc.adjust_card_limit(p["card_id"], p["new_limit_cents"]),
     "report_card_loss": lambda svc, p: svc.report_card_loss(p["card_id"]),
     "unlock_card": lambda svc, p: svc.unlock_card(p["card_id"]),
+    "freeze_card": lambda svc, p: svc.freeze_card(p["card_id"]),
+    "unfreeze_card": lambda svc, p: svc.unfreeze_card(p["card_id"]),
+    "change_password": lambda svc, p: svc.change_password(p.get("user_id", 1), p.get("new_password", "")),
     # 场景5：订阅代扣
     "list_subscriptions": lambda svc, p: svc.list_subscriptions(p.get("user_id", 1)),
     "cancel_subscription": lambda svc, p: svc.cancel_subscription(p["subscription_id"]),
@@ -66,10 +72,12 @@ EXECUTORS = {
 
 _TOOL_CN = {
     "query_balance": "余额查询", "list_transactions": "交易查询", "analyze_bills": "账单分析",
-    "transfer": "转账", "schedule_transfer": "定时转账", "split_bill": "AA收款",
-    "wealth_products": "理财查询", "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
+    "annual_report": "年度账单", "transfer": "转账", "schedule_transfer": "定时转账", "split_bill": "AA收款",
+    "wealth_products": "理财查询", "wealth_compare": "理财对比", "risk_assessment": "风险评估",
+    "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
     "apply_virtual_card": "虚拟卡申请", "adjust_card_limit": "额度调整",
     "report_card_loss": "卡片挂失", "unlock_card": "卡片解挂",
+    "freeze_card": "卡片冻结", "unfreeze_card": "卡片解冻", "change_password": "密码修改",
     "list_subscriptions": "订阅查询", "cancel_subscription": "取消订阅",
     "detect_subscriptions": "订阅识别", "subscription_reminders": "续费提醒",
     "lock_funds": "资金锁定", "order_gift": "礼品订购",
@@ -98,6 +106,11 @@ class AuditRecord:
     message: str
 
 
+# 异常熔断阈值（赛题：连续失败或可疑行为触发安全锁定）
+MFA_FAIL_LIMIT = 3  # 连续输错验证码
+SUSPICIOUS_LIMIT = 3  # 连续注入/越权试探
+
+
 class AgentOrchestrator:
     def __init__(self, llm: BaseLLM | None = None, service: BankService | None = None):
         self.llm = llm or build_llm()
@@ -107,15 +120,36 @@ class AgentOrchestrator:
         self.history: list[dict] = []
         self.audit: list[AuditRecord] = []
         self._pending: dict[str, dict] = {}
-        # 会话内"今日累计转账"跟踪：超 1000 元自动升级红级（黄→红）
-        self.user_state: dict = {"today_transfer_cents": 0}
+        # 会话状态：今日累计转账（日限额升级）+ 熔断计数（安全锁定）
+        self.user_state: dict = {
+            "today_transfer_cents": 0,
+            "mfa_failures": 0,
+            "suspicious_count": 0,
+            "locked": False,
+        }
 
     def reset(self) -> None:
-        """重置会话（演示/测试用）：清历史、清待确认、重置银行数据；审计保留。"""
+        """重置会话（演示/测试用）：清历史、清待确认、重置银行数据与锁定；审计保留。"""
         self.history = []
-        self.user_state = {"today_transfer_cents": 0}
+        self.user_state = {
+            "today_transfer_cents": 0, "mfa_failures": 0,
+            "suspicious_count": 0, "locked": False,
+        }
         self._pending = {}
         self.service.store.reset()
+
+    def status(self) -> dict:
+        """会话安全状态（前端展示 / 熔断演示）。"""
+        return {
+            "locked": self.user_state["locked"],
+            "mfa_failures": self.user_state["mfa_failures"],
+            "suspicious_count": self.user_state["suspicious_count"],
+            "mfa_fail_limit": MFA_FAIL_LIMIT,
+            "suspicious_limit": SUSPICIOUS_LIMIT,
+        }
+
+    def _is_locked(self) -> bool:
+        return bool(self.user_state.get("locked"))
 
     def tick(self, sim_date: str | None = None) -> AgentReply:
         """系统定时器一次拨动（时间沙箱）：执行到期定时转账 + 触发到期事件。
@@ -128,6 +162,14 @@ class AgentOrchestrator:
 
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:
+        st = user_state or self.user_state
+        # 异常熔断：锁定后全部操作拒绝（含查询），审计留痕
+        if st.get("locked"):
+            out = AgentReply("deny", "⚠ 账户已安全锁定（连续验证失败或可疑行为），请重置会话或联系人工接管")
+            self._log(user_msg, "", {}, "", "lockout", "", out.message)
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+
         self.history.append({"role": "user", "content": user_msg})
         messages = [{"role": "system", "content": SYSTEM_PROMPT}, *self.history]
         reply = self.llm.complete(messages, tools=self.tools)
@@ -140,11 +182,11 @@ class AgentOrchestrator:
 
         if reply.plan:  # 跨场景联动：DAG 计划（有序子任务，逐节点过权限门）
             self._log(user_msg, "", {}, "yellow", "plan", "", f"解析为 {len(reply.plan)} 节点 DAG")
-            return self._run_plan(reply.plan, user_msg, user_state or self.user_state)
+            return self._run_plan(reply.plan, user_msg, st)
 
         tc = reply.tool_calls[0]
         tool, params = tc["name"], tc.get("arguments", {})
-        decision = decide(self.registry, tool, params, user_state or self.user_state)
+        decision = decide(self.registry, tool, params, st)
         risk = decision.spec.get("risk", "?") if decision.spec else "?"
         self._log(user_msg, tool, params, risk, decision.action, "", decision.reason)
 
@@ -158,9 +200,8 @@ class AgentOrchestrator:
             self.history.append({"role": "assistant", "content": f"需要{need}：{decision.reason}"})
             return AgentReply(decision.action, decision.reason, tool=tool, params=params, pending_id=pid)
 
-        # deny（含未注册工具/注入试探）
-        self.history.append({"role": "assistant", "content": decision.reason})
-        return AgentReply("deny", decision.reason, tool=tool, params=params)
+        # deny（未注册工具/注入试探）→ 累计可疑行为，触发熔断
+        return self._record_suspicious(user_msg, tool, params, decision.reason, st)
 
     # ---------- DAG 计划执行（场景6 跨场景联动） ----------
     def _run_plan(self, plan: list[dict], user_msg: str, user_state: dict) -> AgentReply:
@@ -221,15 +262,32 @@ class AgentOrchestrator:
         return self._execute(p["tool"], p["params"], "(用户确认后执行)", decision.reason)
 
     def authorize(self, pending_id: str, mfa_code: str = "123456") -> AgentReply:
-        """红级强验证：模拟短信/人脸/U盾通过后执行。"""
+        """红级强验证：模拟短信/人脸/U盾通过后执行。连续失败触发熔断锁定。"""
         p = self._pending.pop(pending_id, None)
         if not p:
             return AgentReply("deny", "无效的验证凭证，请重新发起操作")
         if mfa_code != "123456":
-            return AgentReply("deny", "验证码错误，操作未执行")
+            self.user_state["mfa_failures"] += 1
+            msg = "验证码错误，操作未执行"
+            if self.user_state["mfa_failures"] >= MFA_FAIL_LIMIT:
+                self.user_state["locked"] = True
+                msg = f"验证码连续错误 {MFA_FAIL_LIMIT} 次，账户已安全锁定"
+                self._log("(MFA失败)", p["tool"], p["params"], "red", "lockout", "", msg)
+            return AgentReply("deny", msg)
         if p["kind"] == "plan":
             return self._plan_resume(p, self.user_state, mfa_ok=True)
         return self._execute(p["tool"], p["params"], "(强验证通过后执行)", "多因子验证通过")
+
+    def _record_suspicious(self, user_msg, tool, params, reason, st) -> AgentReply:
+        """注入/越权试探累计：达到阈值触发安全锁定。"""
+        st["suspicious_count"] += 1
+        out = AgentReply("deny", reason, tool=tool, params=params)
+        if st["suspicious_count"] >= SUSPICIOUS_LIMIT:
+            st["locked"] = True
+            out.message = f"{reason}；已累计 {SUSPICIOUS_LIMIT} 次可疑行为，账户已安全锁定"
+            self._log(user_msg, tool, params, "red", "lockout", "", out.message)
+        self.history.append({"role": "assistant", "content": out.message})
+        return out
 
     def _plan_resume(self, p: dict, user_state: dict, mfa_ok: bool = False) -> AgentReply:
         """DAG 节点确认/强验证通过后：执行该节点并继续推进计划。"""
@@ -351,4 +409,24 @@ def _summarize(tool: str, r) -> str:
         return f"{r.message}，当前已锁定 {d['locked_cents'] / 100:.2f} 元，可用余额 {d['available_cents'] / 100:.2f} 元"
     if tool == "order_gift":
         return f"订购成功：{d['merchant']} {d['amount_cents'] / 100:.2f} 元（订单 {d['order_id']}）"
+    if tool == "annual_report":
+        months = "、".join(f"{m['month']}月支{abs(m['expense_cents']) / 100:.0f}" for m in d["months"])
+        return (
+            f"{d['year']}年度账单：总支出 {abs(d['total_expense_cents']) / 100:.2f} 元，"
+            f"总收入 {d['total_income_cents'] / 100:.2f} 元，共 {d['month_count']} 个月有交易；"
+            f"月度：{months or '无'}；支出最多："
+            + "、".join(f"{c['category']} {abs(c['amount_cents']) / 100:.2f}元" for c in d["top_categories"])
+        )
+    if tool == "risk_assessment":
+        matched = "、".join(p["name"] for p in d["matched_products"])
+        return f"风险评估：{d['level_cn']}（{d['level']}）。适配产品：{matched}。建议：{d['advice']}"
+    if tool == "wealth_compare":
+        rows = "、".join(
+            f"{c['name']}（年化{c['expected_return'] * 100:.1f}%，风险{c['risk_level']}）" for c in d["compare"]
+        )
+        return f"产品对比：{rows}；{d['suggestion']}"
+    if tool == "change_password":
+        return f"{r.message}（执行编号 {r.execution_id[:8]}）"
+    if tool in ("freeze_card", "unfreeze_card"):
+        return f"{r.message}：{d['card_id']}（状态 {d['status']}）"
     return r.message

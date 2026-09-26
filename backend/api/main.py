@@ -130,6 +130,12 @@ def agent_tick(req: TickRequest):
     return _reply(agent.tick(req.date))
 
 
+@app.get("/api/v1/agent/status")
+def agent_status():
+    """会话安全状态（异常熔断演示）：锁定 / 失败计数。"""
+    return agent.status()
+
+
 @app.get("/api/v1/agent/audit")
 def agent_audit(limit: int = 50):
     """审计日志（决策链路全记录）——演示/答辩面板数据源。"""

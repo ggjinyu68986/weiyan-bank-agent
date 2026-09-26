@@ -146,7 +146,18 @@
     if (res.requires === "confirm") { addConfirmCard(res); return; }
     if (res.requires === "mfa") { openMfa(res); return; }
     addAssistant(res.message, { deny: res.requires === "deny", eid: res.execution_id });
+    if (res.message.indexOf("已安全锁定") >= 0) { showLockBanner(); }
     if (res.requires === "auto" && res.tool === "analyze_bills") { renderBillChart(); }
+  }
+
+  /* 异常熔断：安全锁定横幅（连续验证失败/可疑行为后出现，重置可解锁） */
+  function showLockBanner() {
+    if (document.getElementById("lockBanner")) return;
+    var b = document.createElement("div");
+    b.id = "lockBanner";
+    b.className = "lock-banner";
+    b.innerHTML = "⚠ 账户已安全锁定（异常熔断）—— 点击「重置演示」可解锁并恢复银行数据";
+    document.body.insertBefore(b, document.body.firstChild);
   }
 
   /* 账单分析可视化：分类环形图 + 异常列表 */
