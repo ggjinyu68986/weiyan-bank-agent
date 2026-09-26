@@ -20,7 +20,7 @@ weiyan-bank-agent/
 - 后端：Python 3.12 + FastAPI + SQLite + APScheduler
 - Agent：自研轻量编排（意图 → DAG 规划 → 权限门 → 执行 → 审计）
 - LLM：OpenAI 兼容 API（豆包 / GPT / Claude 可切换）
-- 前端：React (Vite) + Tailwind + ECharts
+- 前端：纯 HTML/JS 单页聊天页 + ECharts（CDN 引入）
 - 沙箱：Docker
 
 ## 快速开始（部署说明，10/25 完善）
