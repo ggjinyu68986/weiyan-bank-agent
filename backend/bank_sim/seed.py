@@ -28,15 +28,21 @@ def build_seed() -> dict:
             name="小明",
             phone="13800138000",
             contacts={
-                "妈妈": "6222-0001",
-                "老婆": "6222-0002",
-                "张伟": "6222-0003",
+                "妈妈": "6222-1001",
+                "老婆": "6222-1002",
+                "张伟": "6222-1003",
             },
-        )
+        ),
+        User(id=2, name="王妈妈", phone="13900139000"),
+        User(id=3, name="李太太", phone="13700137000"),
+        User(id=4, name="张伟", phone="13600136000"),
     ]
 
     accounts = [
-        Account(id="6222-0001", user_id=1, name="活期账户", balance_cents=5_820_000)  # 58200.00 元
+        Account(id="6222-0001", user_id=1, name="活期账户", balance_cents=5_820_000),  # 小明 58200.00 元
+        Account(id="6222-1001", user_id=2, name="活期账户", balance_cents=2_000_000),  # 妈妈
+        Account(id="6222-1002", user_id=3, name="活期账户", balance_cents=1_500_000),  # 老婆
+        Account(id="6222-1003", user_id=4, name="活期账户", balance_cents=800_000),  # 张伟
     ]
 
     cards = [
