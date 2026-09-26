@@ -6,6 +6,7 @@
   LLM_MODEL=deepseek-chat
 
 无 Key 时 build_llm() 自动回退 MockLLM——开发/测试/演示零阻塞。
+MockLLM 为确定性规则路由：覆盖 6 大场景常用话术，可复现、可单测。
 """
 from __future__ import annotations
 
@@ -68,8 +69,11 @@ class ChatLLM(BaseLLM):
         return LLMReply(text=msg.content or "", tool_calls=tcs)
 
 
+USER_ACCOUNT = "6222-0001"
+
+
 class MockLLM(BaseLLM):
-    """确定性假 LLM：供单元测试与无 Key 离线演示（规则匹配，可复现）。"""
+    """确定性假 LLM：规则路由 6 大场景话术（可复现、可单测、离线可用）。"""
 
     def complete(self, messages, tools=None) -> LLMReply:
         text = ""
@@ -80,35 +84,95 @@ class MockLLM(BaseLLM):
 
         # 注入/绕过试探 → 让 LLM"试图"调用未注册工具，验证权限门拦截
         if any(k in text for k in ("无视规则", "忽略规则", "绕过", "hack", "直接转走")):
-            return LLMReply(tool_calls=[{"name": "hack_steal_money", "arguments": {}}])
+            return self._tool("hack_steal_money", {})
 
+        # ---- 场景2 查询 ----
         if "余额" in text:
-            return LLMReply(tool_calls=[{"name": "query_balance", "arguments": {"account_id": "6222-0001"}}])
+            return self._tool("query_balance", {"account_id": USER_ACCOUNT})
+        if any(k in text for k in ("流水", "明细")):
+            return self._tool("list_transactions", {"account_id": USER_ACCOUNT, "limit": 20})
+        if any(k in text for k in ("账单", "花了", "消费", "异常", "可疑")):
+            month = 9 if ("这个月" in text or "9月" in text or "本月" in text) else None
+            return self._tool("analyze_bills", {"account_id": USER_ACCOUNT, "month": month})
 
+        # ---- 场景1 转账 ----
+        if "转" in text and any(k in text for k in ("定时", "每周", "每月", "下个月")):
+            return self._tool("schedule_transfer", {
+                "from_account_id": USER_ACCOUNT, "to_account_id": self._pick_to(text),
+                "amount_cents": _extract_yuan(text) * 100,
+                "note": "定时" + ("给妈妈" if "妈妈" in text else ""),
+                "next_run": "2026-10-05", "cycle_days": 7 if "每周" in text else 0,
+            })
         if "转" in text:
-            yuan = _extract_yuan(text)
-            to = "6222-1002" if ("老婆" in text or "爱人" in text) else ("6222-1001" if "妈妈" in text else "6222-0001")
-            return LLMReply(
-                tool_calls=[
-                    {
-                        "name": "transfer",
-                        "arguments": {
-                            "from_account_id": "6222-0001",
-                            "to_account_id": to,
-                            "amount_cents": yuan * 100,
-                            "note": "给" + ("妈妈" if "妈妈" in text else ("老婆" if "老婆" in text else "家人")),
-                        },
-                    }
-                ]
-            )
+            return self._tool("transfer", {
+                "from_account_id": USER_ACCOUNT, "to_account_id": self._pick_to(text),
+                "amount_cents": _extract_yuan(text) * 100,
+                "note": "给" + ("妈妈" if "妈妈" in text else ("老婆" if ("老婆" in text or "爱人" in text) else "家人")),
+            })
+        if any(k in text for k in ("AA", "aa", "平分", "凑份子")):
+            people = int(re.search(r"(\d+)\s*人", text).group(1)) if re.search(r"(\d+)\s*人", text) else 3
+            return self._tool("split_bill", {
+                "account_id": USER_ACCOUNT, "total_cents": _extract_yuan(text) * 100,
+                "people_count": people, "title": "聚餐AA",
+            })
 
-        if any(k in text for k in ("流水", "明细", "账单", "花了")):
-            return LLMReply(tool_calls=[{"name": "list_transactions", "arguments": {"account_id": "6222-0001", "limit": 20}}])
+        # ---- 场景3 理财 ----
+        if "理财" in text and ("买" in text or "申购" in text):
+            return self._tool("buy_wealth", {
+                "user_id": 1, "product_id": "WP-001", "amount_cents": (_extract_yuan(text) or 1000) * 100,
+            })
+        if "赎回" in text:
+            return self._tool("redeem_wealth", {
+                "user_id": 1, "product_id": "WP-001", "amount_cents": (_extract_yuan(text) or 1000) * 100,
+            })
+        if "理财" in text or "产品" in text:
+            return self._tool("wealth_products", {"user_id": 1})
 
+        # ---- 场景4 卡片 ----
+        if "虚拟卡" in text:
+            return self._tool("apply_virtual_card", {"user_id": 1})
+        if "挂失" in text:
+            return self._tool("report_card_loss", {"card_id": "C-0001"})
+        if "解挂" in text:
+            return self._tool("unlock_card", {"card_id": "C-0001"})
+        if "额度" in text:
+            return self._tool("adjust_card_limit", {
+                "card_id": "C-0001", "new_limit_cents": (_extract_yuan(text) or 20000) * 100,
+            })
+
+        # ---- 场景5 订阅 ----
+        if any(k in text for k in ("退订", "取消订阅")):
+            return self._tool("cancel_subscription", {"subscription_id": "S-001"})
+        if any(k in text for k in ("扣费", "自动扣", "订阅识别")):
+            return self._tool("detect_subscriptions", {"account_id": USER_ACCOUNT})
+        if "续费" in text:
+            return self._tool("subscription_reminders", {"user_id": 1})
         if "订阅" in text:
-            return LLMReply(tool_calls=[{"name": "list_subscriptions", "arguments": {"user_id": 1}}])
+            return self._tool("list_subscriptions", {"user_id": 1})
+
+        # ---- 场景6 跨场景联动 ----
+        if any(k in text for k in ("锁定", "预留", "生日预算")):
+            return self._tool("lock_funds", {
+                "account_id": USER_ACCOUNT, "amount_cents": (_extract_yuan(text) or 1000) * 100,
+                "note": "爱人生日预算",
+            })
+        if any(k in text for k in ("鲜花", "蛋糕", "订花", "订蛋糕")):
+            return self._tool("order_gift", {
+                "account_id": USER_ACCOUNT, "merchant": "某某鲜花店",
+                "amount_cents": (_extract_yuan(text) or 200) * 100, "note": "爱人生日礼物",
+            })
 
         return LLMReply(text="（Mock）我还没听懂你的意思，请换一种说法。")
+
+    def _tool(self, name, arguments) -> LLMReply:
+        return LLMReply(tool_calls=[{"name": name, "arguments": arguments}])
+
+    def _pick_to(self, text) -> str:
+        if "老婆" in text or "爱人" in text:
+            return "6222-1002"
+        if "妈妈" in text:
+            return "6222-1001"
+        return USER_ACCOUNT
 
 
 def _extract_yuan(text: str) -> int:

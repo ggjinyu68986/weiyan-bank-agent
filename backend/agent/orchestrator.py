@@ -25,13 +25,42 @@ from .llm import BaseLLM, build_llm
 from .prompts import SYSTEM_PROMPT, build_tool_schemas
 
 # 工具 → 银行服务执行器（能力层映射；权限判定不在这里，在上游编排）
+# 覆盖赛题 6 大场景：转账家族 / 账单分析 / 理财 / 卡片 / 订阅代扣 / 跨场景联动
 EXECUTORS = {
-    "query_balance": lambda svc, p: svc.get_balance(p["account_id"]),
-    "list_transactions": lambda svc, p: svc.list_transactions(p["account_id"], p.get("limit", 50)),
+    # 场景1：智能转账
     "transfer": lambda svc, p: svc.transfer(
         p["from_account_id"], p["to_account_id"], p["amount_cents"], p.get("note", "")
     ),
+    "schedule_transfer": lambda svc, p: svc.schedule_transfer(
+        p["from_account_id"], p["to_account_id"], p["amount_cents"],
+        p.get("note", ""), p.get("next_run"), p.get("cycle_days", 0),
+    ),
+    "split_bill": lambda svc, p: svc.split_bill(
+        p["account_id"], p["total_cents"], p["people_count"], p.get("title", "AA收款")
+    ),
+    # 场景2：账单分析
+    "query_balance": lambda svc, p: svc.get_balance(p["account_id"]),
+    "list_transactions": lambda svc, p: svc.list_transactions(p["account_id"], p.get("limit", 50)),
+    "analyze_bills": lambda svc, p: svc.analyze_bills(p["account_id"], p.get("month")),
+    # 场景3：理财
+    "wealth_products": lambda svc, p: svc.wealth_products(p.get("user_id", 1)),
+    "buy_wealth": lambda svc, p: svc.buy_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
+    "redeem_wealth": lambda svc, p: svc.redeem_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
+    # 场景4：卡片管理
+    "apply_virtual_card": lambda svc, p: svc.apply_virtual_card(p.get("user_id", 1)),
+    "adjust_card_limit": lambda svc, p: svc.adjust_card_limit(p["card_id"], p["new_limit_cents"]),
+    "report_card_loss": lambda svc, p: svc.report_card_loss(p["card_id"]),
+    "unlock_card": lambda svc, p: svc.unlock_card(p["card_id"]),
+    # 场景5：订阅代扣
     "list_subscriptions": lambda svc, p: svc.list_subscriptions(p.get("user_id", 1)),
+    "cancel_subscription": lambda svc, p: svc.cancel_subscription(p["subscription_id"]),
+    "detect_subscriptions": lambda svc, p: svc.detect_subscriptions(p.get("account_id", "6222-0001")),
+    "subscription_reminders": lambda svc, p: svc.subscription_reminders(p.get("user_id", 1)),
+    # 场景6：跨场景联动
+    "lock_funds": lambda svc, p: svc.lock_funds(p["account_id"], p["amount_cents"], p.get("note", "")),
+    "order_gift": lambda svc, p: svc.order_gift(
+        p["account_id"], p["merchant"], p["amount_cents"], p.get("note", "")
+    ),
 }
 
 
@@ -178,4 +207,54 @@ def _summarize(tool: str, r) -> str:
             return "当前没有订阅代扣。"
         lines = "、".join(f"{s['merchant']}（{s['amount_cents'] / 100:.2f} 元/期）" for s in subs)
         return f"共 {d['count']} 项订阅代扣：{lines}"
+    if tool == "schedule_transfer":
+        return (
+            f"已登记定时转账：{d['amount_cents'] / 100:.2f} 元 → 账户 {d['to_account_id']}"
+            f"，下次执行 {d['next_run']}（执行编号 {r.execution_id[:8]}）"
+        )
+    if tool == "split_bill":
+        return (
+            f"AA 收款单已生成：「{d['title']}」共 {d['people_count']} 人，"
+            f"每人 {d['per_person_cents'] / 100:.2f} 元，总计 {d['total_cents'] / 100:.2f} 元"
+        )
+    if tool == "analyze_bills":
+        cats = "、".join(f"{c['category']} {abs(c['amount_cents']) / 100:.2f}元" for c in d["by_category"])
+        return (
+            f"{d['period']}账单：支出 {abs(d['total_expense_cents']) / 100:.2f} 元，"
+            f"收入 {d['total_income_cents'] / 100:.2f} 元；分类：{cats or '无支出'}；"
+            f"发现 {d['anomaly_count']} 笔异常："
+            + "；".join(f"{a['counterparty']}（{a['reason']}）" for a in d["anomalies"])
+        )
+    if tool == "wealth_products":
+        prods = "、".join(f"{p['name']}（年化{p['rate']}）" for p in d["products"])
+        holdings = "、".join(f"{p['name']} {p['amount_cents'] / 100:.2f}元" for p in d["holdings"]) or "暂无持仓"
+        return f"在售 {len(d['products'])} 款产品：{prods}；当前持仓：{holdings}"
+    if tool in ("buy_wealth", "redeem_wealth"):
+        return f"{r.message}：{d['product']} {d['amount_cents'] / 100:.2f} 元"
+    if tool == "apply_virtual_card":
+        return f"虚拟卡申请成功：{d['card_id']}（日限额 {d['daily_limit_cents'] / 100:.2f} 元）"
+    if tool == "adjust_card_limit":
+        return f"卡片 {d['card_id']} 日限额已调整为 {d['daily_limit_cents'] / 100:.2f} 元"
+    if tool in ("report_card_loss", "unlock_card"):
+        return f"{r.message}：{d['card_id']}（状态 {d['status']}）"
+    if tool == "cancel_subscription":
+        return f"{r.message}（执行编号 {r.execution_id[:8]}）"
+    if tool == "detect_subscriptions":
+        if not d["detected"]:
+            return "未识别到周期性订阅扣费。"
+        lines = "、".join(f"{x['merchant']}（{x['count']}笔/{x['total_cents'] / 100:.2f}元）" for x in d["detected"])
+        return f"识别到 {d['count']} 项订阅扣费：{lines}"
+    if tool == "subscription_reminders":
+        if not d["reminders"]:
+            return "暂无待续费订阅。"
+        lines = "、".join(
+            f"{x['merchant']}（{x['next_bill_date']}，{x['amount_cents'] / 100:.2f} 元"
+            + ("，即将到期" if x["urgent"] else "") + "）"
+            for x in d["reminders"]
+        )
+        return f"续费提醒：{lines}"
+    if tool == "lock_funds":
+        return f"{r.message}，当前已锁定 {d['locked_cents'] / 100:.2f} 元，可用余额 {d['available_cents'] / 100:.2f} 元"
+    if tool == "order_gift":
+        return f"订购成功：{d['merchant']} {d['amount_cents'] / 100:.2f} 元（订单 {d['order_id']}）"
     return r.message

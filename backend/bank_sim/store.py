@@ -5,7 +5,19 @@
 """
 from __future__ import annotations
 
-from .models import Account, Card, Event, Holding, Subscription, Transaction, User, WealthProduct
+from .models import (
+    Account,
+    Card,
+    Event,
+    Holding,
+    Order,
+    ScheduledTransfer,
+    SplitBill,
+    Subscription,
+    Transaction,
+    User,
+    WealthProduct,
+)
 from .seed import build_seed
 
 
@@ -22,6 +34,9 @@ class BankStore:
         self.events: dict[str, Event] = {e.id: e for e in data["events"]}
         # 幂等登记：request_id -> {execution_id, data}
         self.idempotency: dict[str, dict] = {}
+        self.scheduled_transfers: dict[str, ScheduledTransfer] = {}
+        self.split_bills: dict[str, SplitBill] = {}
+        self.orders: dict[str, Order] = {}
         self._tx_seq = 0
 
     def next_tx_id(self) -> str:

@@ -6,6 +6,9 @@
     { "tool": "analyze_bills", "name_cn": "账单分析", "category": "查询", "risk": "green" },
     { "tool": "wealth_returns", "name_cn": "理财收益查询", "category": "查询", "risk": "green" },
     { "tool": "risk_assessment", "name_cn": "风险评估问卷", "category": "查询", "risk": "green" },
+    { "tool": "wealth_products", "name_cn": "理财产品列表", "category": "理财", "risk": "green" },
+    { "tool": "detect_subscriptions", "name_cn": "订阅扣费识别", "category": "订阅", "risk": "green" },
+    { "tool": "subscription_reminders", "name_cn": "续费提醒", "category": "订阅", "risk": "green" },
 
     { "tool": "transfer", "name_cn": "转账", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
     { "tool": "schedule_transfer", "name_cn": "定时转账", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },

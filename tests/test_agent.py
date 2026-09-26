@@ -93,3 +93,58 @@ def test_subscriptions_query():
     r = o.handle("我有啥订阅")
     assert r.requires == "auto"
     assert "3" in r.message  # 共 3 项订阅代扣
+
+
+def test_bill_analysis():
+    """账单分析（绿级）：分类 + 异常识别结果回显。"""
+    o = make()
+    r = o.handle("我这个月账单怎么样")
+    assert r.requires == "auto"
+    assert "2026-09" in r.message
+    assert "异常" in r.message
+
+
+def test_schedule_transfer_via_agent():
+    """定时转账（黄级确认）。"""
+    o = make()
+    r = o.handle("每周给妈妈转500元")
+    assert r.requires == "confirm"
+    assert o.confirm(r.pending_id).requires == "auto"
+
+
+def test_split_bill_via_agent():
+    """AA 拆分（黄级确认）。"""
+    o = make()
+    r = o.handle("聚餐600元3个人AA")
+    assert r.requires == "confirm"
+    assert o.confirm(r.pending_id).requires == "auto"
+
+
+def test_cancel_subscription_via_agent():
+    """取消订阅（黄级确认）。"""
+    o = make()
+    r = o.handle("取消订阅")
+    assert r.requires == "confirm"
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto"
+    assert "已取消订阅" in out.message
+
+
+def test_card_loss_via_agent_mfa():
+    """卡片挂失（红级强验证）。"""
+    o = make()
+    r = o.handle("帮我挂失卡片")
+    assert r.requires == "mfa"
+    out = o.authorize(r.pending_id)
+    assert out.requires == "auto"
+    assert "lost" in out.message
+
+
+def test_lock_funds_via_agent():
+    """场景6：资金锁定（黄级确认）。"""
+    o = make()
+    r = o.handle("锁定1000元作为生日预算")
+    assert r.requires == "confirm"
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto"
+    assert "已锁定" in out.message
