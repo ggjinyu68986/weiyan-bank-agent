@@ -11,8 +11,24 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 from dataclasses import dataclass, field
+
+
+def _load_dotenv() -> None:
+    """极简 .env 加载（零依赖）：仓库根目录的 .env 自动生效。"""
+    try:
+        p = pathlib.Path(__file__).resolve().parents[2] / ".env"
+        if not p.exists():
+            return
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
+    except Exception:
+        pass
 
 
 @dataclass
@@ -106,6 +122,7 @@ def _extract_yuan(text: str) -> int:
 
 def build_llm() -> BaseLLM:
     """按环境变量构建 LLM；无 Key 回退 Mock（可离线开发）。"""
+    _load_dotenv()
     key = os.getenv("LLM_API_KEY", "").strip()
     base = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1").strip()
     model = os.getenv("LLM_MODEL", "deepseek-chat").strip()
