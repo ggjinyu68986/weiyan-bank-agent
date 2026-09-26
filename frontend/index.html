@@ -16,6 +16,7 @@
     </div>
   </div>
   <div class="actions">
+    <button id="btnTick" class="btn ghost">定时器演示</button>
     <button id="btnAudit" class="btn ghost">审计日志</button>
     <button id="btnReset" class="btn ghost">重置演示</button>
   </div>
@@ -49,6 +50,20 @@
   </div>
 </div>
 
+<!-- 定时器演示弹层（时间沙箱：模拟日期触发定时转账/生日事件） -->
+<div id="tickMask" class="mask hidden">
+  <div class="mfa-card">
+    <div class="mfa-title">系统定时器 · 时间沙箱</div>
+    <div class="mfa-desc">拨动到任意日期，自动执行到期定时转账与事件联动（如生日前 2 天订购鲜花蛋糕）。</div>
+    <input id="tickDate" class="mfa-input" value="2026-12-18" autocomplete="off">
+    <div class="mfa-hint">试试：2026-10-05（到期周转）· 2026-12-18（生日联动）</div>
+    <div class="mfa-actions">
+      <button id="tickCancel" class="btn ghost">取消</button>
+      <button id="tickOk" class="btn primary">执行拨动</button>
+    </div>
+  </div>
+</div>
+
 <!-- 审计日志弹层 -->
 <div id="auditMask" class="mask hidden">
   <div class="audit-card">
@@ -58,6 +73,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

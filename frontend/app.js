@@ -146,6 +146,81 @@
     if (res.requires === "confirm") { addConfirmCard(res); return; }
     if (res.requires === "mfa") { openMfa(res); return; }
     addAssistant(res.message, { deny: res.requires === "deny", eid: res.execution_id });
+    if (res.requires === "auto" && res.tool === "analyze_bills") { renderBillChart(); }
+  }
+
+  /* 账单分析可视化：分类环形图 + 异常列表 */
+  function renderBillChart() {
+    fetch(API + "/agent/bills")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var box = document.createElement("div");
+        box.className = "bubble assistant chart";
+        box.innerHTML = '<div class="meta">微言 · 账单可视化</div>';
+        var title = document.createElement("div");
+        title.className = "chart-title";
+        title.textContent = d.period + " 支出分类（总支出 " + fmtYuan(Math.abs(d.total_expense_cents)) + "）";
+        box.appendChild(title);
+        var chartDiv = document.createElement("div");
+        chartDiv.style.cssText = "width:100%;height:220px;";
+        box.appendChild(chartDiv);
+        var listDiv = document.createElement("div");
+        listDiv.className = "anomaly-list";
+        if (d.anomaly_count > 0) {
+          listDiv.innerHTML = '<div class="anomaly-head">⚠ 识别到 ' + d.anomaly_count + ' 笔异常交易</div>' +
+            d.anomalies.map(function (a) {
+              return '<div class="anomaly-row"><b>' + a.counterparty + '</b> ' + fmtYuan(a.amount_cents) +
+                "（" + a.reason + "）</div>";
+            }).join("");
+        }
+        box.appendChild(listDiv);
+        chat.appendChild(box);
+        scrollBottom();
+        if (window.echarts) {
+          var cats = d.by_category.filter(function (c) { return c.amount_cents < 0; });
+          var chart = echarts.init(chartDiv);
+          chart.setOption({
+            tooltip: { trigger: "item", formatter: "{b}: {c} 元 ({d}%)" },
+            legend: { bottom: 0, textStyle: { fontSize: 11 } },
+            series: [{
+              type: "pie", radius: ["42%", "68%"], center: ["50%", "44%"],
+              itemStyle: { borderRadius: 4, borderColor: "#fff", borderWidth: 1 },
+              label: { show: false },
+              data: cats.map(function (c) {
+                return { name: c.category, value: Math.abs(c.amount_cents) / 100 };
+              }),
+            }],
+          });
+        } else {
+          chartDiv.style.display = "none";
+          box.appendChild(document.createTextNode("（离线环境未加载图表库，仅显示文字）"));
+        }
+      });
+  }
+
+  /* 定时器演示（时间沙箱） */
+  function openTick() {
+    document.getElementById("tickMask").classList.remove("hidden");
+    document.getElementById("tickDate").focus();
+  }
+  function runTick() {
+    var date = document.getElementById("tickDate").value.trim();
+    if (!date) return;
+    document.getElementById("tickOk").disabled = true;
+    addUser("（系统定时器拨动到 " + date + "）");
+    addTyping();
+    fetch(API + "/agent/tick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: date }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        document.getElementById("tickMask").classList.add("hidden");
+        document.getElementById("tickOk").disabled = false;
+        removeTyping();
+        renderReply(res);
+      });
   }
 
   /* 审计日志弹层 */
@@ -199,6 +274,11 @@
   sendBtn.onclick = send;
   input.onkeydown = function (e) { if (e.key === "Enter") send(); };
   document.getElementById("btnAudit").onclick = openAudit;
+  document.getElementById("btnTick").onclick = openTick;
+  document.getElementById("tickOk").onclick = runTick;
+  document.getElementById("tickCancel").onclick = function () {
+    document.getElementById("tickMask").classList.add("hidden");
+  };
   document.getElementById("btnReset").onclick = function () {
     fetch(API + "/agent/reset", { method: "POST" })
       .then(function () {

@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from .models import (
     Card,
@@ -409,6 +409,52 @@ class BankService:
         return OpResult.success(
             {"order_id": oid, "merchant": merchant, "amount_cents": amount_cents, "note": note},
             message=f"订购成功：{merchant}",
+        )
+
+    # ========== 定时调度（系统触发，审计标记 system） ==========
+    def run_due_scheduled(self, target: str | None = None) -> OpResult:
+        """执行到期定时转账（时间沙箱：target 可传任意日期，供评测/演示）。
+        系统级执行也走 transfer（幂等 key=sys-{id}-{date}），重复 tick 不重复扣款。"""
+        today = date.fromisoformat(target) if target else date.today()
+        executed = []
+        for st in list(self.store.scheduled_transfers.values()):
+            if st.status != "active" or st.next_run > today:
+                continue
+            r = self.transfer(st.from_account_id, st.to_account_id, st.amount_cents,
+                              st.note, request_id=f"sys-{st.id}-{st.next_run.isoformat()}")
+            executed.append({
+                "schedule_id": st.id, "amount_cents": st.amount_cents,
+                "ok": r.ok, "message": r.message, "execution_id": r.execution_id,
+            })
+            if r.ok:
+                if st.cycle_days > 0:
+                    st.next_run += timedelta(days=st.cycle_days)
+                else:
+                    st.status = "done"
+        return OpResult.success(
+            {"executed_count": len(executed), "executed": executed},
+            message=f"定时任务执行完成（{len(executed)} 项）",
+        )
+
+    def run_due_events(self, target: str | None = None) -> OpResult:
+        """事件引擎：到期（事件日前 2 天）自动触发联动动作（场景6）。
+        如 E-001 爱人生日 12/20 → 12/18 自动订购鲜花+蛋糕。"""
+        today = date.fromisoformat(target) if target else date.today()
+        fired = []
+        for ev in self.store.events.values():
+            due_date = ev.event_date - timedelta(days=2)
+            if ev.fired or today < due_date:
+                continue
+            flower = int(ev.amount_cents * 0.4)
+            cake = int(ev.amount_cents * 0.3)
+            r1 = self.order_gift("6222-0001", "某某鲜花店", flower, note=ev.note)
+            r2 = self.order_gift("6222-0001", "某某蛋糕店", cake, note=ev.note)
+            ev.fired = True
+            fired.append({"event": ev.name, "date": ev.event_date.isoformat(),
+                          "orders": [r1.data.get("order_id", ""), r2.data.get("order_id", "")]})
+        return OpResult.success(
+            {"fired_count": len(fired), "fired": fired},
+            message=f"事件触发完成（{len(fired)} 个事件）",
         )
 
     # ========== 内部 ==========

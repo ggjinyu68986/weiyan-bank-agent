@@ -86,6 +86,7 @@ class Event(BaseModel):
     event_date: date
     amount_cents: int = 0  # 关联预算（场景6：锁定 1000 元）
     note: str = ""
+    fired: bool = False  # 事件是否已触发执行
 
 
 class ScheduledTransfer(BaseModel):

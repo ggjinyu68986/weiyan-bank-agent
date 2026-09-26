@@ -88,6 +88,10 @@ class AuthorizeRequest(BaseModel):
     mfa_code: str = "123456"
 
 
+class TickRequest(BaseModel):
+    date: str | None = None  # 时间沙箱：模拟日期 YYYY-MM-DD
+
+
 def _reply(r: AgentReply) -> dict:
     return {
         "requires": r.requires,
@@ -120,6 +124,12 @@ def agent_reset():
     return {"ok": True, "message": "会话已重置（银行数据已复原）"}
 
 
+@app.post("/api/v1/agent/tick")
+def agent_tick(req: TickRequest):
+    """系统定时器拨动（时间沙箱）：执行到期定时转账 + 触发到期事件。"""
+    return _reply(agent.tick(req.date))
+
+
 @app.get("/api/v1/agent/audit")
 def agent_audit(limit: int = 50):
     """审计日志（决策链路全记录）——演示/答辩面板数据源。"""
@@ -136,3 +146,12 @@ def agent_audit(limit: int = 50):
         for r in agent.audit[-limit:]
     ]
     return {"count": len(records), "records": list(reversed(records))}
+
+
+@app.get("/api/v1/agent/bills")
+def agent_bills(account_id: str = "6222-0001", month: int | None = None):
+    """账单分析原始数据（前端 ECharts 可视化数据源）。"""
+    r = service.analyze_bills(account_id, month)
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data

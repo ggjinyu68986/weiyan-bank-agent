@@ -218,3 +218,30 @@ def test_order_gift():
     assert r.ok
     assert svc.get_balance("6222-0001").data["balance_cents"] == bal0 - 20_000
     assert r.data["order_id"].startswith("O-")
+
+
+# ========== 定时调度（时间沙箱） ==========
+def test_run_due_scheduled():
+    svc = BankService()
+    svc.schedule_transfer("6222-0001", "6222-1001", 50_000, note="每周给妈妈", next_run="2026-10-05", cycle_days=7)
+    # 未到期：不执行
+    r0 = svc.run_due_scheduled("2026-10-04")
+    assert r0.data["executed_count"] == 0
+    # 到期：执行，且幂等（重复 tick 不重复扣款）
+    r1 = svc.run_due_scheduled("2026-10-05")
+    assert r1.data["executed_count"] == 1
+    bal = svc.get_balance("6222-0001").data["balance_cents"]
+    r2 = svc.run_due_scheduled("2026-10-05")
+    assert r2.data["executed_count"] == 0  # 下次已滚动到 10-12
+    assert svc.get_balance("6222-0001").data["balance_cents"] == bal
+
+
+def test_run_due_events_birthday():
+    """E-001 爱人生日 12/20 → 12/18 触发订购鲜花+蛋糕；12/17 不触发。"""
+    svc = BankService()
+    assert svc.run_due_events("2026-12-17").data["fired_count"] == 0
+    r = svc.run_due_events("2026-12-18")
+    assert r.data["fired_count"] == 1
+    assert len(svc.store.orders) == 2
+    # 已触发：重复拨动不重复下单
+    assert svc.run_due_events("2026-12-20").data["fired_count"] == 0

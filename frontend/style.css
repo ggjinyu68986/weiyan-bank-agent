@@ -70,6 +70,11 @@ main {
 .bubble.user .meta { color: rgba(255,255,255,.75); }
 .bubble .eid { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .bubble.user .eid { color: rgba(255,255,255,.7); }
+.bubble.chart { max-width: 92%; width: 92%; }
+.chart-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.anomaly-list { margin-top: 8px; font-size: 12px; }
+.anomaly-head { color: var(--red); font-weight: 700; margin-bottom: 4px; }
+.anomaly-row { color: #374151; padding: 2px 0; }
 
 /* 确认卡片（黄级） */
 .confirm-card {

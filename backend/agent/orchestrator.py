@@ -117,6 +117,15 @@ class AgentOrchestrator:
         self._pending = {}
         self.service.store.reset()
 
+    def tick(self, sim_date: str | None = None) -> AgentReply:
+        """系统定时器一次拨动（时间沙箱）：执行到期定时转账 + 触发到期事件。
+        sim_date 传 YYYY-MM-DD 可模拟任意日期（评测/演示），不传用今天。"""
+        r1 = self.service.run_due_scheduled(sim_date)
+        r2 = self.service.run_due_events(sim_date)
+        self._log("(系统定时触发)", "", {}, "", "system", "",
+                  f"定时器拨动{('@' + sim_date) if sim_date else ''}：{r1.message}；{r2.message}")
+        return AgentReply("auto", f"{r1.message}；{r2.message}")
+
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:
         self.history.append({"role": "user", "content": user_msg})
