@@ -462,7 +462,8 @@ class BankService:
             r = self.transfer(st.from_account_id, st.to_account_id, st.amount_cents,
                               st.note, request_id=f"sys-{st.id}-{st.next_run.isoformat()}")
             executed.append({
-                "schedule_id": st.id, "amount_cents": st.amount_cents,
+                "schedule_id": st.id, "to_account_id": st.to_account_id,
+                "amount_cents": st.amount_cents,
                 "ok": r.ok, "message": r.message, "execution_id": r.execution_id,
             })
             if r.ok:

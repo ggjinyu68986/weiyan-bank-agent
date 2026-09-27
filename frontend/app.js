@@ -398,6 +398,8 @@
       document.getElementById("tickOk").disabled = false;
       removeTyping();
       renderReply(res);
+      refreshAsset(); // 定时器可能触发扣款/订购：资产卡必须同步刷新（曾因漏刷让用户误以为"没扣钱"）
+      loadAudit();
     });
   }
   document.getElementById("btnTick").onclick = openTick;
