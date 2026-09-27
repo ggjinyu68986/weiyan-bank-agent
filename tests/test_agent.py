@@ -381,3 +381,29 @@ def test_balance_variant_fabricated_blocked():
     assert r.requires == "deny"
     assert "疑似编造" in r.message
     assert o.status()["suspicious_count"] == 1
+
+
+class RetryThenToolLLM(MockLLM):
+    """模拟真实模型首轮犹豫只回文字、系统重试后正确调工具（手机号转账场景）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def complete(self, messages, tools=None):
+        self.calls += 1
+        if self.calls == 1:
+            return LLMReply(text="好的，给13900139000转500元")
+        return super().complete(messages, tools)
+
+
+def test_operation_auto_retry_then_tool():
+    """操作类请求模型首轮未调工具 → 系统自动重试一次 → 第二次调 transfer → 正常走黄级确认。"""
+    llm = RetryThenToolLLM()
+    o = AgentOrchestrator(llm=llm)
+    r = o.handle("给13900139000转500元")
+    assert llm.calls == 2  # 首轮 + 重试
+    assert r.requires == "confirm"  # transfer 黄级确认
+    assert r.params["to_account_id"] == "13900139000"
+    # 重试留审计痕迹
+    assert any(rec.action == "retry" for rec in o.audit)

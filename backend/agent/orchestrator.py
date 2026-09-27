@@ -179,10 +179,22 @@ class AgentOrchestrator:
             text = reply.text or "（无可用操作）"
             # 幻觉兜底（第二道防线）：查询类请求未调工具却输出金额/执行编号/账户号 → 疑似编造，拦截并计入可疑行为
             if _looks_fabricated(user_msg, text):
-                msg = "系统拦截：该回复疑似编造账户信息（未调用任何查询工具）。请重新描述需求，我将通过工具核实。"
+                msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
                 return self._record_suspicious(user_msg, "", {}, msg, st)
-            # 操作类请求但模型未调工具（如 AA/转账只文字复述）→ 引导通过工具办理（不算可疑行为）
+            # 操作类请求但模型未调工具（如转账/AA只文字复述）→ 系统自动重试一次（把"必须调工具"再喂给模型），
+            # 仍失败才引导用户重说（提升真实模型成功率，杜绝"复述即假装完成"）
             if any(k in user_msg for k in OPERATION_HINTS):
+                self.history.append({
+                    "role": "assistant",
+                    "content": "（系统提示）你请求的业务必须调用工具完成（transfer/split_bill/cancel_subscription 等），"
+                               "请立即调用对应工具，不要以文字复述金额、不要仅回复确认。",
+                })
+                self._log(user_msg, "", {}, "", "retry", "", "操作类请求未调工具，系统自动重试一次")
+                retry = self.llm.complete(
+                    [{"role": "system", "content": SYSTEM_PROMPT}, *self.history], tools=self.tools
+                )
+                if retry.tool_calls or retry.plan:
+                    return self._route_tool(retry, user_msg, st)
                 out = AgentReply(
                     "chat",
                     "我还没有执行任何操作。请允许我通过工具为你办理——你可以再对我说一次，我会先展示操作详情待你确认。",
@@ -195,6 +207,11 @@ class AgentOrchestrator:
             self.history.append({"role": "assistant", "content": out.message})
             return out
 
+        return self._route_tool(reply, user_msg, st)
+
+    def _route_tool(self, reply, user_msg: str, user_state: dict) -> AgentReply:
+        """工具调用/计划路由：DAG 计划或单工具 → 权限门 → 挂起/执行/拒绝。"""
+        st = user_state
         if reply.plan:  # 跨场景联动：DAG 计划（有序子任务，逐节点过权限门）
             self._log(user_msg, "", {}, "yellow", "plan", "", f"解析为 {len(reply.plan)} 节点 DAG")
             return self._run_plan(reply.plan, user_msg, st)
