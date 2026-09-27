@@ -126,7 +126,13 @@ class MockLLM(BaseLLM):
                 "amount_cents": _extract_yuan(text) * 100,
                 "note": "给" + ("妈妈" if "妈妈" in text else ("老婆" if ("老婆" in text or "爱人" in text) else "家人")),
             })
-        if any(k in text for k in ("AA", "aa", "平分", "凑份子")):
+        if any(k in text for k in ("AA", "aa", "平分", "凑份子", "已付款", "付AA", "收款进度", "收款入账")):
+            if any(k in text for k in ("进度", "收到", "收齐", "付了多少")):
+                return self._tool("split_bill_status", {"account_id": USER_ACCOUNT})
+            if any(k in text for k in ("已付款", "付AA", "支付", "AA收款", "转给发起人")):
+                return self._tool("pay_split_bill", {
+                    "account_id": USER_ACCOUNT, "payer_account_id": self._pick_to(text),
+                })
             people = int(re.search(r"(\d+)\s*人", text).group(1)) if re.search(r"(\d+)\s*人", text) else 3
             return self._tool("split_bill", {
                 "account_id": USER_ACCOUNT, "total_cents": _extract_yuan(text) * 100,

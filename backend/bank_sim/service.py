@@ -16,6 +16,7 @@ from .models import (
     Order,
     ScheduledTransfer,
     SplitBill,
+    SplitPayer,
     Subscription,
     Transaction,
 )
@@ -236,12 +237,24 @@ class BankService:
             message="定时转账已登记",
         )
 
-    def split_bill(self, account_id, total_cents, people_count, title="AA收款") -> OpResult:
-        """AA 拆分：总金额 / 人数，余数归第一位。"""
-        if total_cents <= 0 or people_count <= 0:
-            return OpResult.error("INVALID_PARAMS", "金额与人数必须为正数")
+    def split_bill(self, account_id, total_cents, people_count, title="AA收款",
+                   payer_accounts: list[str] | None = None) -> OpResult:
+        """AA 拆分收款（完整闭环第一步）：发起人垫付 total，向其余 N-1 人各收人均金额。
+        人均 = 整除，余数归发起人（自己那份 = per + rem），保证总数分毫不差。
+        payer_accounts 缺省 = 联系人簿前 N-1 位（演示语义：聚餐默认叫上家人朋友）。"""
+        if total_cents <= 0 or people_count < 2:
+            return OpResult.error("INVALID_PARAMS", "金额必须为正数、参与人数至少 2 人")
         per = total_cents // people_count
         rem = total_cents - per * people_count
+        payers = []
+        if payer_accounts:
+            for acc in payer_accounts:
+                payers.append(SplitPayer(account_id=acc, amount_cents=per))
+        else:
+            # 缺省收款对象：联系人簿前 N-1 位（发起人自己也分摊一份，只向别人收）
+            cs = [c for c in self.store.contacts.values() if c.user_id == 1][: people_count - 1]
+            for c in cs:
+                payers.append(SplitPayer(account_id=c.account_id, amount_cents=per))
         bill = SplitBill(
             id=f"SB-{len(self.store.split_bills) + 1:04d}",
             account_id=account_id,
@@ -250,6 +263,7 @@ class BankService:
             people_count=people_count,
             per_person_cents=per,
             remainder_cents=rem,
+            payers=payers,
         )
         self.store.split_bills[bill.id] = bill
         breakdown = [per] * people_count
@@ -263,8 +277,84 @@ class BankService:
                 "per_person_cents": per,
                 "first_person_extra_cents": rem,
                 "breakdown": breakdown,
+                "payers": [{"account_id": p.account_id, "amount_cents": p.amount_cents} for p in payers],
             },
             message="AA 收款单已生成",
+        )
+
+    def _latest_open_bill(self, account_id: str) -> SplitBill | None:
+        """最近创建的未结清收款单（模型/用户无需记 bill_id 的缺省定位）。"""
+        for b in reversed(list(self.store.split_bills.values())):
+            if b.account_id == account_id and b.status == "open":
+                return b
+        return None
+
+    def split_bill_status(self, account_id: str, bill_id: str = "") -> OpResult:
+        """AA 收款进度（绿级查询）：已收/待收、每人金额、状态。"""
+        bill = self.store.split_bills.get(bill_id) or self._latest_open_bill(account_id)
+        if not bill:
+            return OpResult.error("BILL_NOT_FOUND", "没有进行中的 AA 收款单，说「聚餐600元3个人AA」即可发起")
+        paid = [p for p in bill.payers if p.paid]
+        due = [p for p in bill.payers if not p.paid]
+        return OpResult.success(
+            {
+                "bill_id": bill.id,
+                "title": bill.title,
+                "status": bill.status,
+                "per_person_cents": bill.per_person_cents,
+                "paid_count": len(paid),
+                "payer_count": len(bill.payers),
+                "paid": [{"account_id": p.account_id, "amount_cents": p.amount_cents} for p in paid],
+                "due": [{"account_id": p.account_id, "amount_cents": p.amount_cents} for p in due],
+            },
+            message="AA 收款进度查询完成",
+        )
+
+    def pay_split_bill(self, account_id: str, payer_account_id: str,
+                       bill_id: str = "", request_id: str | None = None) -> OpResult:
+        """AA 收款（闭环第二步）：收款人确认付款——从 payer 账户扣人均金额，入账发起人账户。
+        幂等：同一收款人重复付款拒绝；全部付清自动结清（status=settled）。"""
+        bill = self.store.split_bills.get(bill_id) or self._latest_open_bill(account_id)
+        if not bill:
+            return OpResult.error("BILL_NOT_FOUND", "没有进行中的 AA 收款单，先发起 AA 再收款")
+        if bill.status == "settled":
+            return OpResult.error("BILL_SETTLED", f"「{bill.title}」已收齐结清")
+        # 收款人解析：兼容账户号/联系人姓名/手机号（模型传哪个都能定位）
+        resolved = self._resolve_account(payer_account_id)
+        payer_id = resolved.id if resolved else payer_account_id
+        payer = next((p for p in bill.payers if p.account_id == payer_id), None)
+        if not payer:
+            return OpResult.error("PAYER_NOT_IN_BILL", f"账户 {payer_account_id} 不在本收款单分摊名单中")
+        if payer.paid:
+            return OpResult.error("ALREADY_PAID", f"该分摊人已付款（{payer.paid_execution_id}），请勿重复收款")
+        src = self._account(payer.account_id)
+        dst = self._account(bill.account_id)
+        if not src or src.available_cents < payer.amount_cents:
+            return OpResult.error("INSUFFICIENT_BALANCE", f"{payer.account_id} 可用余额不足，无法支付分摊款")
+        src.balance_cents -= payer.amount_cents
+        dst.balance_cents += payer.amount_cents
+        self._append_tx(payer.account_id, "transfer", -payer.amount_cents, bill.account_id, "转账",
+                        f"AA分摊-{bill.title}")
+        self._append_tx(bill.account_id, "transfer", payer.amount_cents, payer.account_id, "转账",
+                        f"AA收款-{bill.title}")
+        payer.paid = True
+        payer.paid_execution_id = request_id or f"aa-{self.store.next_tx_id()}"
+        if all(p.paid for p in bill.payers):
+            bill.status = "settled"
+        paid_count = sum(1 for p in bill.payers if p.paid)
+        done = bill.status == "settled"
+        return OpResult.success(
+            {
+                "bill_id": bill.id,
+                "title": bill.title,
+                "payer_account_id": payer.account_id,
+                "amount_cents": payer.amount_cents,
+                "paid_count": paid_count,
+                "payer_count": len(bill.payers),
+                "settled": done,
+            },
+            message=f"已收款：{payer.account_id} {payer.amount_cents / 100:.2f} 元"
+                    + (f"，{paid_count}/{len(bill.payers)} 人已付" if not done else f"，已收齐结清（{paid_count}/{len(bill.payers)}）"),
         )
 
     # ========== 场景3：理财 ==========

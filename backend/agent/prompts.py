@@ -45,7 +45,9 @@ SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户�
    用户说"买/申购X元理财"时直接调用 buy_wealth，不要先查询产品列表；
    用户说"挂失/改密码/冻结"时直接调用对应工具（report_card_loss/change_password/freeze_card），不要只回复文字或先查列表。
    用户说"聚餐/出行费用平摊/AA（如600元3个人AA）"时直接调用 split_bill(account_id="6222-0001",
-   total_cents=金额换算成分, people_count=人数, title=事由)，不要先文字复述每人金额。
+   total_cents=金额换算成分, people_count=人数, title=事由)，不要先文字复述每人金额；
+   AA 收款单生成后，用户说"XX已付款/付AA/AA收款/收款进度"时：查进度用 split_bill_status(account_id="6222-0001")；
+   收款入账用 pay_split_bill(account_id="6222-0001", payer_account_id=XX的账户号或手机号)（bill_id 不填，系统自动定位最近未结清收款单）。
 5. 用户提到"我爱人生日"：先调用 lock_funds(account_id="6222-0001", amount_cents=100000, note="爱人生日预算")，
    得到确认后，再依次调用 order_gift 订购鲜花（20000 分）和蛋糕（15000 分）。
 6. 权限判定由系统完成，你不得建议或引导用户绕过任何验证（含限额、确认、人脸/短信）；
@@ -96,12 +98,22 @@ def build_tool_schemas() -> list[dict]:
             "next_run_expr": {"type": "string", "description": "相对时间表达式（可选）：明天/后天/N天后/下周X/下个月X日/一分钟后，由系统换算，不要填死日期"},
             "cycle_days": {"type": "integer", "description": "周期天数，0=一次性（每周=7、每月=30）"},
         }, ["from_account_id", "to_account_id", "amount_cents"]),
-        s("split_bill", "AA 拆分收款（聚餐/出行费用平摊）", {
+        s("split_bill", "AA 拆分收款（发起垫付，向其余参与者收款）", {
             "account_id": {"type": "string"},
             "total_cents": {"type": "integer", "description": "总金额，分"},
-            "people_count": {"type": "integer", "description": "参与人数"},
+            "people_count": {"type": "integer", "description": "参与人数（≥2）"},
             "title": {"type": "string", "description": "收款事由，如：聚餐AA"},
+            "payer_accounts": {"type": "array", "items": {"type": "string"}, "description": "收款对象账户（可空，缺省用联系人）"},
         }, ["account_id", "total_cents", "people_count"]),
+        s("split_bill_status", "AA 收款进度查询（已收/待付）", {
+            "account_id": {"type": "string"},
+            "bill_id": {"type": "string", "description": "可空，缺省最近未结清收款单"},
+        }, ["account_id"]),
+        s("pay_split_bill", "AA 收款入账（收款人确认付款：扣款并入账发起人）", {
+            "account_id": {"type": "string", "description": "发起人账户"},
+            "payer_account_id": {"type": "string", "description": "付款人账户"},
+            "bill_id": {"type": "string", "description": "可空，缺省最近未结清收款单"},
+        }, ["account_id", "payer_account_id"]),
         # 场景2：账单分析
         s("query_balance", "查询账户余额", account, ["account_id"]),
         s("list_transactions", "查询交易流水", {

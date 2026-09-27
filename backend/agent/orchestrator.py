@@ -64,7 +64,12 @@ EXECUTORS = {
         p.get("note", ""), _next_run(p), p.get("cycle_days", 0),
     ),
     "split_bill": lambda svc, p: svc.split_bill(
-        p["account_id"], p["total_cents"], p["people_count"], p.get("title", "AA收款")
+        p["account_id"], p["total_cents"], p["people_count"], p.get("title", "AA收款"),
+        p.get("payer_accounts"),
+    ),
+    "split_bill_status": lambda svc, p: svc.split_bill_status(p["account_id"], p.get("bill_id", "")),
+    "pay_split_bill": lambda svc, p: svc.pay_split_bill(
+        p["account_id"], p["payer_account_id"], p.get("bill_id", ""), p.get("request_id"),
     ),
     # 场景2：账单分析
     "query_balance": lambda svc, p: svc.get_balance(p["account_id"]),
@@ -101,6 +106,7 @@ EXECUTORS = {
 _TOOL_CN = {
     "query_balance": "余额查询", "list_transactions": "交易查询", "analyze_bills": "账单分析",
     "annual_report": "年度账单", "transfer": "转账", "schedule_transfer": "定时转账", "split_bill": "AA收款",
+    "split_bill_status": "AA收款进度", "pay_split_bill": "AA收款入账",
     "list_contacts": "联系人查询", "add_contact": "添加联系人",
     "wealth_products": "理财查询", "wealth_compare": "理财对比", "risk_assessment": "风险评估",
     "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
@@ -415,7 +421,7 @@ class AgentOrchestrator:
 QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对比", "推荐", "明细", "查询", "查", "看看",
                "还剩", "多少钱", "多少", "订阅", "代扣", "理财", "持仓")
 # 注意：整词匹配优先用长词（"退订"而非"订"，避免"订阅"被误判为操作类）
-OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "锁定", "申请", "还款")
+OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "锁定", "申请", "还款", "已付款", "付AA")
 
 
 def _looks_fabricated(text: str) -> bool:
@@ -468,9 +474,24 @@ def _summarize(tool: str, r) -> str:
             f"，下次执行 {d['next_run']}（执行编号 {r.execution_id[:8]}）"
         )
     if tool == "split_bill":
+        payers = "、".join(f"账户{p['account_id']}" for p in d["payers"]) or "（无）"
         return (
             f"AA 收款单已生成：「{d['title']}」共 {d['people_count']} 人，"
-            f"每人 {d['per_person_cents'] / 100:.2f} 元，总计 {d['total_cents'] / 100:.2f} 元"
+            f"每人 {d['per_person_cents'] / 100:.2f} 元，总计 {d['total_cents'] / 100:.2f} 元；"
+            f"待收款：{payers}（说「XX已付款」逐一入账）"
+        )
+    if tool == "split_bill_status":
+        paid = "、".join(p["account_id"] for p in d["paid"]) or "无"
+        due = "、".join(p["account_id"] for p in d["due"]) or "无"
+        return (
+            f"「{d['title']}」收款进度：已收 {d['paid_count']}/{d['payer_count']}"
+            f"（每人 {d['per_person_cents'] / 100:.2f} 元）；已付：{paid}；待付：{due}"
+        )
+    if tool == "pay_split_bill":
+        return (
+            f"AA 收款入账：{d['payer_account_id']} {d['amount_cents'] / 100:.2f} 元 → 发起人"
+            f"（已收 {d['paid_count']}/{d['payer_count']}"
+            + ("，已收齐结清！" if d["settled"] else "）")
         )
     if tool == "analyze_bills":
         cats = "、".join(f"{c['category']} {abs(c['amount_cents']) / 100:.2f}元" for c in d["by_category"])

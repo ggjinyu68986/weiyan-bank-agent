@@ -113,8 +113,17 @@ class ScheduledTransfer(BaseModel):
     status: str = "active"  # active / cancelled / done
 
 
+class SplitPayer(BaseModel):
+    """AA 收款对象（发起人之外的分摊人）。"""
+    account_id: str
+    amount_cents: int  # 应付款（= 人均）
+    paid: bool = False
+    paid_execution_id: str = ""
+
+
 class SplitBill(BaseModel):
-    """AA 拆分收款（场景1）。"""
+    """AA 拆分收款（场景1）——完整闭环：发起 → 收款人付款 → 入账 → 结清。
+    account_id 为发起人（垫付方），payers 为待收款对象；向 N-1 人各收人均金额，余数归发起人。"""
     id: str
     account_id: str
     title: str
@@ -122,6 +131,7 @@ class SplitBill(BaseModel):
     people_count: int
     per_person_cents: int
     remainder_cents: int = 0
+    payers: list[SplitPayer] = []
     status: str = "open"  # open / settled
 
 

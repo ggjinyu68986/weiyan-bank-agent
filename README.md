@@ -42,6 +42,9 @@ python -m backend.channels.console   # 终端 IM 渠道（确认/强验证/熔�
 | 给妈妈转800元 | 🟡 黄色确认卡片 → **收款人：妈妈（账户 6222-1001）** → 确认执行 |
 | 给小王转200元 | 🟡 联系人簿解析小王 → 确认卡显示收款人 → 确认执行 |
 | 给13900139000转500元 | 🟡 按手机号转账（13900139000=妈妈） |
+| 聚餐600元3个人AA | 🟡 确认 → 收款单：每人 200.00 元，待收 2 人（妈妈、老婆） |
+| 妈妈已付款 / 老婆已付款 | 🟡 逐一确认入账：收款人 -200 → 发起人 +200；收齐自动结清 |
+| AA收款进度 | 🟢 收款进度：已收 0/2 → 1/2 → 已收齐结清 |
 | 一分钟后转100元给老婆 | 🟡 定时转账：登记后下次执行=今天（分钟级≈尽快），⏱ 拨任意日期即触发 |
 | 明天给老婆转100元 | 🟡 定时转账：系统把"明天"换算为 2026-09-28（模型不算日期） |
 | 每周给妈妈转500元 | 🟡 定时转账：周期词→固定锚点 2026-10-05 → ⏱ 拨到 10-05 扣款 500 并推进下周 |
@@ -67,7 +70,7 @@ weiyan-bank-agent/
 │   ├── api/main.py            # FastAPI：Mock Bank + Agent 对话/确认/强验证/审计/tick
 │   ├── agent/                 # 编排层：llm(可插拔+Mock兜底) / prompts(工具schema) / orchestrator(权限门+DAG+审计) / timeexpr(确定性时间解析)
 │   ├── channels/              # 渠道适配层：base(协议) / console(IM终端) / web(Web/APP)——同一内核多渠道
-│   ├── bank_sim/              # 能力层：models / seed(小明画像) / store / service(6场景25工具+联系人簿) / result
+│   ├── bank_sim/              # 能力层：models / seed(小明画像) / store / service(6场景28工具+联系人簿+AA闭环) / result
 │   ├── registry/              # operations.json：绿黄红权限注册表（数据驱动）
 │   └── security/              # permission.py 判定 + sandbox.py 进程级兜底
 ├── frontend/                  # 手机银行风格前端：五 Tab（对话/账单/卡片/联系人/审计）+ ECharts（零构建）
@@ -78,15 +81,15 @@ weiyan-bank-agent/
 │   ├── 技术文档.md            # 架构图 + 核心算法 + 安全设计（作品资料2）
 │   ├── 安全自评报告.md        # 权限分级实现 + 风险清单 + 实测加固实录（作品资料5）
 │   └── reports/eval-report.md # 自动评测报告（Mock 25/25，真实模型 24/24）
-├── tests/                     # pytest（96 项）
+├── tests/                     # pytest（104 项）
 └── requirements.txt
 ```
 
 ## 测试与评测
 
 ```bash
-python -m pytest -q            # 96 项单元测试（权限/服务/编排/熔断/幻觉兜底/渠道/数据一致性/联系人簿/时间解析）
-python -m harness.run          # 自动评测（MockLLM，确定性 27/27）
+python -m pytest -q            # 104 项单元测试（权限/服务/编排/熔断/幻觉兜底/渠道/数据一致性/联系人簿/时间解析/AA闭环）
+python -m harness.run          # 自动评测（MockLLM，确定性 28/28）
 python -m harness.run --real   # 自动评测（真实 DeepSeek）
 ```
 

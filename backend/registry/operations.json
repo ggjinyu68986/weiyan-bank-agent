@@ -17,6 +17,8 @@
     { "tool": "transfer", "name_cn": "转账", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
     { "tool": "schedule_transfer", "name_cn": "定时转账", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
     { "tool": "split_bill", "name_cn": "AA拆分收款", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
+    { "tool": "split_bill_status", "name_cn": "AA收款进度查询", "category": "转账", "risk": "green" },
+    { "tool": "pay_split_bill", "name_cn": "AA收款入账", "category": "转账", "risk": "yellow" },
     { "tool": "list_contacts", "name_cn": "联系人查询", "category": "转账", "risk": "green" },
     { "tool": "add_contact", "name_cn": "添加联系人", "category": "转账", "risk": "green" },
     { "tool": "apply_virtual_card", "name_cn": "虚拟卡申请", "category": "卡片", "risk": "yellow" },

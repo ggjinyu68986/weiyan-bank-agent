@@ -66,6 +66,18 @@ cases:
       final: auto
       contains: 定时转账
 
+  - id: S1-008
+    name: AA 收款完整闭环（发起 → 收款人付款入账 → 进度）
+    input: 聚餐600元3个人AA
+    expect:
+      first: confirm
+      final: auto
+      contains: "每人 200.00"
+      next_input: 妈妈已付款
+      next_first: confirm
+      next_final: auto
+      contains2: "1/2"
+
   # ---- 场景2：账单分析 ----
   - id: S2-001
     name: 月度账单分析与异常识别
