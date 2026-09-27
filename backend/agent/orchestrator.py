@@ -24,9 +24,21 @@ from backend.security.permission import (
 
 from .llm import BaseLLM, build_llm
 from .prompts import SYSTEM_PROMPT, build_tool_schemas
+from .timeexpr import resolve as resolve_time_expr
 
 # 工具 → 银行服务执行器（能力层映射；权限判定不在这里，在上游编排）
 # 覆盖赛题 6 大场景：转账家族 / 账单分析 / 理财 / 卡片 / 订阅代扣 / 跨场景联动
+
+
+def _next_run(p: dict) -> str | None:
+    """定时转账首次执行日：明确日期(模型从话中提取) > 相对表达式(系统换算) > 默认锚点。
+    模型永远不自己算日期——日期换算全部走确定性时间解析器（幻觉防护）。"""
+    if p.get("next_run"):
+        return p["next_run"]
+    if p.get("next_run_expr"):
+        d = resolve_time_expr(p["next_run_expr"])
+        return d.isoformat() if d else None
+    return None
 EXECUTORS = {
     # 场景1：智能转账
     "list_contacts": lambda svc, p: svc.list_contacts(p.get("user_id", 1)),
@@ -39,7 +51,7 @@ EXECUTORS = {
     ),
     "schedule_transfer": lambda svc, p: svc.schedule_transfer(
         p["from_account_id"], p["to_account_id"], p["amount_cents"],
-        p.get("note", ""), p.get("next_run"), p.get("cycle_days", 0),
+        p.get("note", ""), _next_run(p), p.get("cycle_days", 0),
     ),
     "split_bill": lambda svc, p: svc.split_bill(
         p["account_id"], p["total_cents"], p["people_count"], p.get("title", "AA收款")

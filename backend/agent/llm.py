@@ -102,14 +102,22 @@ class MockLLM(BaseLLM):
         if "转" in text and any(k in text for k in
                                 ("定时", "每周", "每月", "下个月", "明天", "后天", "下周",
                                  "预约", "到时", "定期", "分钟后", "提前")):
-            next_run = "2026-09-28" if ("明天" in text or "后天" in text) else "2026-10-05"
+            expr = ("每周" if "每周" in text else
+                    ("每月" if ("每月" in text or "下个月" in text) else
+                     ("明天" if "明天" in text else
+                      ("后天" if "后天" in text else
+                       ("下周" if "下周" in text else
+                        ("一分钟后" if "分钟后" in text else None))))))
             cycle = 7 if "每周" in text else (30 if ("每月" in text or "下个月" in text) else 0)
-            return self._tool("schedule_transfer", {
+            params = {
                 "from_account_id": USER_ACCOUNT, "to_account_id": self._pick_to(text),
                 "amount_cents": _extract_yuan(text) * 100,
                 "note": "定时" + ("给妈妈" if "妈妈" in text else ""),
-                "next_run": next_run, "cycle_days": cycle,
-            })
+                "cycle_days": cycle,
+            }
+            if expr:
+                params["next_run_expr"] = expr  # 只出意图，日期由系统时间解析器换算
+            return self._tool("schedule_transfer", params)
         if "转" in text:
             m = re.search(r"1\d{10}", text)  # 按手机号转账（赛题示例）
             return self._tool("transfer", {
