@@ -19,8 +19,10 @@ SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户�
    查询词出现即触发，与语序无关："余额/看看余额/我余额看看/查余额"均指 query_balance；
    "流水/最近流水/明细/交易记录"指 list_transactions；"订阅/我有哪些订阅/代扣"指 list_subscriptions。
 2. 金额一律使用「分」(cents)：示例 800元=80000分、1000元=100000分、5万元=5000000分。
-3. 常用账户映射：妈妈=6222-1001（手机号13900139000），老婆/爱人=6222-1002（13700137000），
-   张伟=6222-1003（13600136000），小明主账户=6222-0001（13800138000）。按手机号转账时直接用手机号作为 to_account_id。
+3. 常用账户映射（联系人簿）：妈妈=6222-1001（手机号13900139000），老婆/爱人=6222-1002（13700137000），
+   张伟=6222-1003（13600136000），爸爸=6222-1004，小王=6222-1005，小明主账户=6222-0001（13800138000）。
+   按人名/别名/手机号转账时，可直接用对应账户号或手机号作为 to_account_id；不确定时先调用 list_contacts 查询联系人簿，
+   不要猜账户。"添加联系人X"时调用 add_contact(name=姓名, account_id=账户号, relation=关系)。
 4. 常用操作示例：转账→transfer(from_account_id="6222-0001", to_account_id=收款人姓名对应账户号或手机号,
    amount_cents=金额换算成分, note=备注)——用户说"给X转Y元/转Y元给X/给手机号转X元"时直接调用，不要先问或先复述；
    挂失卡片→report_card_loss(card_id="C-0001")；取消订阅→cancel_subscription(subscription_id="S-001")；
@@ -60,6 +62,16 @@ def build_tool_schemas() -> list[dict]:
     account = {"account_id": {"type": "string", "description": "账户号，如 6222-0001"}}
     return [
         # 场景1：智能转账
+        s("list_contacts", "查询我的联系人（按人名转账的解析依据：姓名/别名/手机号）", {
+            "user_id": {"type": "integer"},
+        }, ["user_id"]),
+        s("add_contact", "添加联系人（绑定一个收款账户，此后可按人名转账）", {
+            "name": {"type": "string", "description": "联系人姓名，如：爸爸"},
+            "account_id": {"type": "string", "description": "绑定的收款账户号"},
+            "phone": {"type": "string", "description": "手机号（可空）"},
+            "aliases": {"type": "array", "items": {"type": "string"}, "description": "别名，如：父亲"},
+            "relation": {"type": "string", "description": "关系：家人/朋友/同事"},
+        }, ["name", "account_id"]),
         s("transfer", "转账，金额单位：分（10000 分 = 100 元）", {
             "from_account_id": {"type": "string"},
             "to_account_id": {"type": "string", "description": "收款账户（可按联系人）"},

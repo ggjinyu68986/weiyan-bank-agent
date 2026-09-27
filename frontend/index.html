@@ -111,6 +111,28 @@
       </div>
     </section>
 
+    <!-- ============ 联系人 Tab ============ -->
+    <section id="tab-contacts" class="tab">
+      <div class="tab-head">
+        <div class="tab-title">我的联系人</div>
+        <button id="btnContactAdd" class="ghost-btn">＋ 添加</button>
+      </div>
+      <div class="panel">
+        <div class="panel-title">按人名转账的解析依据：说「给妈妈转800元」→ 查联系人簿 → 展示收款人待确认</div>
+        <div id="contactList" class="contact-list"></div>
+        <div id="contactForm" class="contact-form hidden">
+          <input id="cName" class="modal-input" placeholder="姓名（如：爸爸）">
+          <input id="cAccount" class="modal-input" placeholder="收款账户号（如：6222-1004）">
+          <input id="cPhone" class="modal-input" placeholder="手机号（可选）">
+          <input id="cRelation" class="modal-input" placeholder="关系（家人/朋友/同事，可选）">
+          <div class="contact-form-actions">
+            <button id="cCancel" class="btn ghost">取消</button>
+            <button id="cSave" class="btn primary">保存联系人</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ 审计 Tab ============ -->
     <section id="tab-audit" class="tab">
       <div class="tab-head">
@@ -130,6 +152,7 @@
     <button class="tab-item active" data-tab="chat"><span class="ti">💬</span>对话</button>
     <button class="tab-item" data-tab="bills"><span class="ti">📊</span>账单</button>
     <button class="tab-item" data-tab="cards"><span class="ti">💳</span>卡片</button>
+    <button class="tab-item" data-tab="contacts"><span class="ti">👥</span>联系人</button>
     <button class="tab-item" data-tab="audit"><span class="ti">📋</span>审计</button>
   </nav>
 </div>

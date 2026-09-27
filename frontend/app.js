@@ -33,6 +33,7 @@
       document.getElementById("tab-" + t.dataset.tab).classList.add("active");
       if (t.dataset.tab === "bills") loadBills();
       if (t.dataset.tab === "cards") loadCards();
+      if (t.dataset.tab === "contacts") loadContacts();
       if (t.dataset.tab === "audit") loadAudit();
       if (t.dataset.tab === "chat") refreshAsset();
     };
@@ -104,13 +105,16 @@
 
   function pendingCancel() { var card = document.querySelector(".confirm-card"); if (card) card.remove(); }
 
+  var contactMap = {}; // account_id -> 联系人名（转账确认卡显示收款人，防转错人）
+
   function addConfirmCard(reply) {
     pendingCancel();
     var p = reply.params || {};
     var desc = [];
     if (reply.tool === "transfer") {
       desc.push("金额：<b>" + fmtYuan(p.amount_cents) + "</b>");
-      desc.push("收款账户：" + p.to_account_id);
+      var payee = contactMap[p.to_account_id];
+      desc.push("收款" + (payee ? "人：<b>" + payee + "</b>（账户 " + p.to_account_id + "）" : "账户：" + p.to_account_id));
       if (p.note) desc.push("备注：" + p.note);
     } else {
       desc.push("操作：" + (TOOL_NAMES[reply.tool] || reply.tool));
@@ -299,6 +303,60 @@
   }
   document.getElementById("btnAddCard").onclick = function () { quickSend("申请一张虚拟卡"); };
 
+  /* ========== 联系人 Tab ========== */
+  function loadContacts() {
+    fetch(API + "/contacts")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.data) d = d.data;
+        contactMap = {};
+        var list = document.getElementById("contactList");
+        if (!d.contacts.length) {
+          list.innerHTML = '<div class="anomaly-empty">联系人簿为空——点右上角「＋ 添加」，或直接对微言说「添加联系人 爸爸，账户 6222-1004」</div>';
+          return;
+        }
+        list.innerHTML = d.contacts.map(function (c) {
+          contactMap[c.account_id] = c.name;
+          var phone = c.phone ? " · " + c.phone : "";
+          return '<div class="contact-row">' +
+            '<div class="c-avatar">' + c.name.slice(0, 1) + "</div>" +
+            '<div class="c-info"><div class="c-name">' + c.name +
+            (c.relation ? '<span class="c-rel">' + c.relation + "</span>" : "") + "</div>" +
+            '<div class="c-acct">' + c.account_id + phone + "</div></div>" +
+            (c.aliases && c.aliases.length ? '<div class="c-alias">别名：' + c.aliases.join(" / ") + "</div>" : "") +
+            "</div>";
+        }).join("");
+      });
+  }
+  document.getElementById("btnContactAdd").onclick = function () {
+    document.getElementById("contactForm").classList.remove("hidden");
+  };
+  document.getElementById("cCancel").onclick = function () {
+    document.getElementById("contactForm").classList.add("hidden");
+  };
+  document.getElementById("cSave").onclick = function () {
+    var name = document.getElementById("cName").value.trim();
+    var acc = document.getElementById("cAccount").value.trim();
+    if (!name || !acc) { alert("姓名与收款账户必填"); return; }
+    fetch(API + "/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name,
+        account_id: acc,
+        phone: document.getElementById("cPhone").value.trim(),
+        relation: document.getElementById("cRelation").value.trim(),
+      }),
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      if (res && res.ok === false) { alert(res.message || "添加失败"); return; }
+      document.getElementById("contactForm").classList.add("hidden");
+      ["cName", "cAccount", "cPhone", "cRelation"].forEach(function (id) {
+        document.getElementById(id).value = "";
+      });
+      loadContacts();
+    });
+  };
+
   /* ========== 审计 Tab ========== */
   function loadAudit() {
     fetch(API + "/agent/audit")
@@ -394,6 +452,7 @@
   /* 初始化 */
   refreshAsset();
   refreshSecBadge();
+  loadContacts(); // 预载联系人：转账确认卡显示收款人姓名（防转错人）
   input.focus();
   setInterval(refreshSecBadge, 5000);
 })();

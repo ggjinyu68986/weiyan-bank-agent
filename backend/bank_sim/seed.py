@@ -12,6 +12,7 @@ from datetime import date, datetime, time
 from .models import (
     Account,
     Card,
+    Contact,
     Event,
     Holding,
     Subscription,
@@ -36,6 +37,8 @@ def build_seed() -> dict:
         User(id=2, name="王妈妈", phone="13900139000"),
         User(id=3, name="李太太", phone="13700137000"),
         User(id=4, name="张伟", phone="13600136000"),
+        User(id=5, name="爸爸", phone=""),
+        User(id=6, name="小王", phone=""),
     ]
 
     accounts = [
@@ -43,6 +46,22 @@ def build_seed() -> dict:
         Account(id="6222-1001", user_id=2, name="活期账户", balance_cents=2_000_000),  # 妈妈
         Account(id="6222-1002", user_id=3, name="活期账户", balance_cents=1_500_000),  # 老婆
         Account(id="6222-1003", user_id=4, name="活期账户", balance_cents=800_000),  # 张伟
+        Account(id="6222-1004", user_id=5, name="活期账户", balance_cents=3_000_000),  # 爸爸
+        Account(id="6222-1005", user_id=6, name="活期账户", balance_cents=500_000),  # 小王
+    ]
+
+    # 联系人簿（场景1：按人名/别名/手机号转账的解析依据）
+    contacts = [
+        Contact(id="CT-0001", user_id=1, name="妈妈", aliases=["母亲"], phone="13900139000",
+                account_id="6222-1001", relation="家人"),
+        Contact(id="CT-0002", user_id=1, name="老婆", aliases=["爱人", "妻子"], phone="13700137000",
+                account_id="6222-1002", relation="家人"),
+        Contact(id="CT-0003", user_id=1, name="张伟", aliases=[], phone="13600136000",
+                account_id="6222-1003", relation="朋友"),
+        Contact(id="CT-0004", user_id=1, name="爸爸", aliases=["父亲"], phone="",
+                account_id="6222-1004", relation="家人"),
+        Contact(id="CT-0005", user_id=1, name="小王", aliases=[], phone="",
+                account_id="6222-1005", relation="朋友"),
     ]
 
     cards = [
@@ -92,6 +111,7 @@ def build_seed() -> dict:
         "subscriptions": subscriptions,
         "events": events,
         "transactions": transactions,
+        "contacts": contacts,
     }
 
 

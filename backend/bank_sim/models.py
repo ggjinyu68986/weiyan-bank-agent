@@ -32,6 +32,18 @@ class Account(BaseModel):
         return self.balance_cents - self.locked_cents
 
 
+class Contact(BaseModel):
+    """联系人簿（场景1：按人名/别名/手机号转账的解析依据）。
+    生产环境来源：用户手动添加 / 历史转账沉淀 / 通讯录授权合并。"""
+    id: str
+    user_id: int
+    name: str  # 显示名：如「妈妈」
+    aliases: list[str] = []  # 别名：如「母亲」
+    phone: str = ""  # 手机号（可空）
+    account_id: str  # 绑定的收款账户
+    relation: str = ""  # 关系：家人/朋友/同事/其他
+
+
 class Transaction(BaseModel):
     id: str
     account_id: str

@@ -29,6 +29,11 @@ from .prompts import SYSTEM_PROMPT, build_tool_schemas
 # 覆盖赛题 6 大场景：转账家族 / 账单分析 / 理财 / 卡片 / 订阅代扣 / 跨场景联动
 EXECUTORS = {
     # 场景1：智能转账
+    "list_contacts": lambda svc, p: svc.list_contacts(p.get("user_id", 1)),
+    "add_contact": lambda svc, p: svc.add_contact(
+        p["name"], p["account_id"], p.get("phone", ""),
+        p.get("aliases", []), p.get("relation", ""), p.get("user_id", 1),
+    ),
     "transfer": lambda svc, p: svc.transfer(
         p["from_account_id"], p["to_account_id"], p["amount_cents"], p.get("note", "")
     ),
@@ -74,6 +79,7 @@ EXECUTORS = {
 _TOOL_CN = {
     "query_balance": "余额查询", "list_transactions": "交易查询", "analyze_bills": "账单分析",
     "annual_report": "年度账单", "transfer": "转账", "schedule_transfer": "定时转账", "split_bill": "AA收款",
+    "list_contacts": "联系人查询", "add_contact": "添加联系人",
     "wealth_products": "理财查询", "wealth_compare": "理财对比", "risk_assessment": "风险评估",
     "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
     "apply_virtual_card": "虚拟卡申请", "adjust_card_limit": "额度调整",
@@ -419,6 +425,14 @@ def _summarize(tool: str, r) -> str:
             return "当前没有订阅代扣。"
         lines = "、".join(f"{s['merchant']}（{s['amount_cents'] / 100:.2f} 元/期）" for s in subs)
         return f"共 {d['count']} 项订阅代扣：{lines}"
+    if tool == "list_contacts":
+        cs = d["contacts"]
+        if not cs:
+            return "联系人簿为空，说「添加联系人 XX，账户 6222-XXXX」即可添加。"
+        lines = "、".join(f"{c['name']}（{c['account_id']}" + (f"，{c['relation']}" if c["relation"] else "") + "）" for c in cs)
+        return f"共 {d['count']} 位联系人：{lines}"
+    if tool == "add_contact":
+        return f"{r.message}（绑定账户 {d['account_id']}，执行编号 {r.execution_id[:8]}）"
     if tool == "schedule_transfer":
         return (
             f"已登记定时转账：{d['amount_cents'] / 100:.2f} 元 → 账户 {d['to_account_id']}"

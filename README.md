@@ -38,8 +38,11 @@ python -m backend.channels.console   # 终端 IM 渠道（确认/强验证/熔�
 | 帮我看看余额 | 🟢 自动执行：58200.00 元（带执行编号） |
 | 我这个月账单怎么样 | 🟢 自动执行 + **ECharts 分类环形图 + 3 笔异常** |
 | 给我今年的年度账单 | 🟢 年度账单报告（按月收支 + 支出 Top） |
-| 给妈妈转800元 | 🟡 黄色确认卡片 → 确认执行 |
+| 我有哪些联系人 | 🟢 联系人簿（妈妈/老婆/张伟/爸爸/小王，含别名与手机号） |
+| 给妈妈转800元 | 🟡 黄色确认卡片 → **收款人：妈妈（账户 6222-1001）** → 确认执行 |
+| 给小王转200元 | 🟡 联系人簿解析小王 → 确认卡显示收款人 → 确认执行 |
 | 给13900139000转500元 | 🟡 按手机号转账（13900139000=妈妈） |
+| 添加联系人同事老李，账户6222-1005 | 🟢 添加联系人（此后可直接说「给同事老李转账」） |
 | 再给妈妈转500元 | 🔴 自动升级红级强验证（日累计 1300 > 1000）→ 输入 123456 |
 | 帮我做个风险评估 / 对比一下这几个理财产品 | 🟢 风险评估 / 理财对比 |
 | 买1000元理财 | 🔴 强验证 → 申购成功 |
@@ -61,10 +64,10 @@ weiyan-bank-agent/
 │   ├── api/main.py            # FastAPI：Mock Bank + Agent 对话/确认/强验证/审计/tick
 │   ├── agent/                 # 编排层：llm(可插拔+Mock兜底) / prompts(工具schema) / orchestrator(权限门+DAG+审计)
 │   ├── channels/              # 渠道适配层：base(协议) / console(IM终端) / web(Web/APP)——同一内核多渠道
-│   ├── bank_sim/              # 能力层：models / seed(小明画像) / store / service(6场景25工具) / result
+│   ├── bank_sim/              # 能力层：models / seed(小明画像) / store / service(6场景25工具+联系人簿) / result
 │   ├── registry/              # operations.json：绿黄红权限注册表（数据驱动）
 │   └── security/              # permission.py 判定 + sandbox.py 进程级兜底
-├── frontend/                  # 手机银行风格前端：四 Tab（对话/账单/卡片/审计）+ ECharts（零构建）
+├── frontend/                  # 手机银行风格前端：五 Tab（对话/账单/卡片/联系人/审计）+ ECharts（零构建）
 ├── harness/                   # 自动评测：YAML 场景 DSL + run.py（MD/JSON 双报告）
 ├── Dockerfile / .dockerignore # 容器沙箱（资源受限、日志可监控，见"沙箱双轨"）
 ├── docs/
@@ -79,7 +82,7 @@ weiyan-bank-agent/
 ## 测试与评测
 
 ```bash
-python -m pytest -q            # 85 项单元测试（权限/服务/编排/熔断/幻觉兜底/渠道/数据一致性）
+python -m pytest -q            # 88 项单元测试（权限/服务/编排/熔断/幻觉兜底/渠道/数据一致性/联系人簿）
 python -m harness.run          # 自动评测（MockLLM，确定性 25/25）
 python -m harness.run --real   # 自动评测（真实 DeepSeek，24/24）
 ```
@@ -102,7 +105,7 @@ docker logs -f weiyan-agent    # 审计/错误走 stdout，可监控
 - **LLM**：DeepSeek 默认（OpenAI 兼容 `https://api.deepseek.com/v1`），Provider 可插拔；无 Key 自动回退确定性 MockLLM
 - **编排**：自研轻量层（<1000 行，不用 LangChain/LangGraph）——意图→DAG→权限门→执行→审计，安全全可控
 - **数据**：内存 Store + Repository 抽象（生产可换 SQLite/MySQL）
-- **前端**：手机银行风格（APP 形态，四 Tab：对话/账单/卡片/审计），纯 HTML/JS + ECharts CDN，`file://` 直接打开
+- **前端**：手机银行风格（APP 形态，五 Tab：对话/账单/卡片/联系人/审计），纯 HTML/JS + ECharts CDN，`file://` 直接打开
 - **沙箱**：不执行 LLM 生成的任意代码（工具白名单=逻辑沙箱）+ 进程级兜底 `security/sandbox.py`
 
 ## 安全机制（全部落地并有测试）

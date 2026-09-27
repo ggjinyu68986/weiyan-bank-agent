@@ -72,6 +72,29 @@ def get_cards(account_id: str):
     return _resp(service.list_cards(acc.user_id))
 
 
+# ---------- 联系人簿（场景1：按人名转账的解析依据） ----------
+class ContactReq(BaseModel):
+    name: str
+    account_id: str
+    phone: str = ""
+    aliases: list[str] = []
+    relation: str = ""
+
+
+@app.get("/api/v1/contacts")
+def get_contacts():
+    """我的联系人列表。"""
+    return _resp(service.list_contacts(1))
+
+
+@app.post("/api/v1/contacts")
+def add_contact(req: ContactReq):
+    """添加联系人（绑定收款账户，此后可按人名转账）。"""
+    return _resp(
+        service.add_contact(req.name, req.account_id, req.phone, req.aliases, req.relation)
+    )
+
+
 @app.post("/api/v1/transfers")
 def transfer(req: TransferRequest):
     return _resp(

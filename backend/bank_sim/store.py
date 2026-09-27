@@ -8,6 +8,7 @@ from __future__ import annotations
 from .models import (
     Account,
     Card,
+    Contact,
     Event,
     Holding,
     Order,
@@ -32,6 +33,7 @@ class BankStore:
         self.holdings: dict[str, Holding] = {h.id: h for h in data["holdings"]}
         self.subscriptions: dict[str, Subscription] = {s.id: s for s in data["subscriptions"]}
         self.events: dict[str, Event] = {e.id: e for e in data["events"]}
+        self.contacts: dict[str, Contact] = {c.id: c for c in data["contacts"]}
         # 幂等登记：request_id -> {execution_id, data}
         self.idempotency: dict[str, dict] = {}
         self.scheduled_transfers: dict[str, ScheduledTransfer] = {}

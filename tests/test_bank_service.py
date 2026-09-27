@@ -312,3 +312,34 @@ def test_list_cards():
     assert card["id"] == "C-0001"
     assert card["status"] == "active"
     assert card["daily_limit_cents"] == 2_000_000
+
+
+# ========== 联系人簿（场景1：按人名转账的解析依据） ==========
+def test_list_contacts_seed():
+    """种子联系人簿：妈妈/老婆/张伟/爸爸/小王 五人在册（含别名与手机号）。"""
+    r = BankService().list_contacts(1)
+    assert r.ok
+    assert r.data["count"] == 5
+    names = {c["name"] for c in r.data["contacts"]}
+    assert {"妈妈", "老婆", "张伟", "爸爸", "小王"}.issubset(names)
+    mom = next(c for c in r.data["contacts"] if c["name"] == "妈妈")
+    assert mom["phone"] == "13900139000"
+    assert "母亲" in mom["aliases"]
+
+
+def test_add_contact_and_transfer_by_new_name():
+    """添加联系人 → 按新姓名转账（联系人簿动态生效）。"""
+    svc = BankService()
+    r = svc.add_contact("同事老李", "6222-1005", relation="同事")
+    assert r.ok
+    assert svc.list_contacts(1).data["count"] == 6
+    # 按新姓名转账：解析到 6222-1005
+    r2 = svc.transfer("6222-0001", "同事老李", 30_000, note="还钱")
+    assert r2.ok, r2.message
+    assert svc.get_balance("6222-1005").data["balance_cents"] == 500_000 + 30_000
+
+
+def test_add_contact_duplicate_and_bad_account():
+    svc = BankService()
+    assert not svc.add_contact("妈妈", "6222-1001").ok  # 重名
+    assert not svc.add_contact("新人", "6222-9999").ok  # 账户不存在

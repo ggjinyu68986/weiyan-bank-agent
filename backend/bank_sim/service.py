@@ -11,6 +11,7 @@ from datetime import date, datetime, time, timedelta
 
 from .models import (
     Card,
+    Contact,
     Holding,
     Order,
     ScheduledTransfer,
@@ -136,7 +137,36 @@ class BankService:
             }
         )
 
-    # ========== 场景1：转账家族 ==========
+    # ========== 场景1：智能转账 ==========
+    def list_contacts(self, user_id: int = 1) -> OpResult:
+        """我的联系人（转账按人名解析的依据：姓名/别名/手机号 → 账户）。"""
+        cs = [c for c in self.store.contacts.values() if c.user_id == user_id]
+        return OpResult.success(
+            {"count": len(cs), "contacts": [c.model_dump(mode="json") for c in cs]}
+        )
+
+    def add_contact(self, name: str, account_id: str, phone: str = "",
+                    aliases: list[str] | None = None, relation: str = "", user_id: int = 1) -> OpResult:
+        """添加联系人：绑定一个收款账户（低风险配置操作，全量审计）。
+        生产环境可扩展：校验手机号格式、去重、防"诱导把资金转给新账户"。"""
+        if not name or not account_id:
+            return OpResult.error("INVALID_PARAMS", "联系人姓名与收款账户必填")
+        if not self.store.accounts.get(account_id):
+            return OpResult.error("ACCOUNT_NOT_FOUND", f"收款账户不存在：{account_id}")
+        if any(c.name == name for c in self.store.contacts.values() if c.user_id == user_id):
+            return OpResult.error("DUPLICATE_CONTACT", f"联系人「{name}」已存在")
+        cid = f"CT-{len(self.store.contacts) + 1:04d}"
+        contact = Contact(
+            id=cid, user_id=user_id, name=name, aliases=list(aliases or []),
+            phone=phone, account_id=account_id, relation=relation,
+        )
+        self.store.contacts[cid] = contact
+        return OpResult.success(
+            {"contact_id": cid, "name": name, "account_id": account_id,
+             "phone": phone, "relation": relation},
+            message=f"已添加联系人：{name}",
+        )
+
     def transfer(self, from_account_id, to_account_id, amount_cents, note="", request_id=None) -> OpResult:
         if amount_cents <= 0:
             return OpResult.error("INVALID_AMOUNT", f"转账金额必须为正数：{amount_cents} 分")
@@ -572,7 +602,7 @@ class BankService:
     def _account(self, account_id: str):
         return self.store.accounts.get(account_id)
 
-    # 联系人姓名 → 账户（赛题"按人名转账"，模型传姓名也能兜底解析）
+    # 联系人姓名 → 账户（赛题"按人名转账"，模型传姓名也能兜底解析；联系人簿为主，此表兼容兜底）
     CONTACT_ALIASES = {
         "妈妈": "6222-1001", "母亲": "6222-1001",
         "老婆": "6222-1002", "爱人": "6222-1002", "妻子": "6222-1002",
@@ -580,18 +610,23 @@ class BankService:
     }
 
     def _resolve_account(self, expr: str):
-        """按账户号/手机号/联系人姓名解析收款账户（赛题：按人名/手机号/备注转账）。"""
+        """按账户号/联系人簿(姓名/别名/手机号)/用户手机号解析收款账户。
+        顺序：账户号直查 → 联系人簿 → 11 位手机号 → 兜底别名表（防模型传别名的兼容层）。"""
         acc = self.store.accounts.get(expr)
         if acc:
             return acc
-        if isinstance(expr, str) and re.fullmatch(r"1\d{10}", expr):
-            for u in self.store.users.values():
-                if u.phone == expr:
-                    for a in self.store.accounts.values():
-                        if a.user_id == u.id:
-                            return a
-        if isinstance(expr, str) and expr in self.CONTACT_ALIASES:
-            return self.store.accounts.get(self.CONTACT_ALIASES[expr])
+        if isinstance(expr, str):
+            # 联系人簿：姓名 / 别名 / 手机号
+            for c in self.store.contacts.values():
+                if expr == c.name or (c.phone and expr == c.phone) or expr in c.aliases:
+                    return self.store.accounts.get(c.account_id)
+            if re.fullmatch(r"1\d{10}", expr):
+                for u in self.store.users.values():
+                    if u.phone == expr:
+                        for a in self.store.accounts.values():
+                            if a.user_id == u.id:
+                                return a
+            return self.store.accounts.get(self.CONTACT_ALIASES.get(expr, ""))
         return None
 
     def _append_tx(self, account_id, kind, amount_cents, counterparty, category, note):
