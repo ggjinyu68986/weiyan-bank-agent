@@ -26,6 +26,16 @@ from .llm import BaseLLM, build_llm
 from .prompts import SYSTEM_PROMPT, build_tool_schemas
 from .timeexpr import resolve as resolve_time_expr
 
+_WEEK_CN = "一二三四五六日"
+
+
+def _system_prompt() -> str:
+    """系统提示词：实时注入当前日期（模型知道"现在是几号"理解相对时间，但严禁自算日期）。
+    写死日期会随真实时钟过期——演示到任何一天都自洽。"""
+    now = datetime.now()
+    today = f"{now:%Y-%m-%d}（周{_WEEK_CN[now.weekday()]}）"
+    return SYSTEM_PROMPT.replace("{TODAY}", today)
+
 # 工具 → 银行服务执行器（能力层映射；权限判定不在这里，在上游编排）
 # 覆盖赛题 6 大场景：转账家族 / 账单分析 / 理财 / 卡片 / 订阅代扣 / 跨场景联动
 
@@ -197,7 +207,7 @@ class AgentOrchestrator:
             return out
 
         self.history.append({"role": "user", "content": user_msg})
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}, *self.history]
+        messages = [{"role": "system", "content": _system_prompt()}, *self.history]
         reply = self.llm.complete(messages, tools=self.tools)
 
         if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
@@ -218,7 +228,7 @@ class AgentOrchestrator:
                 })
                 self._log(user_msg, "", {}, "", "retry", "", "查询/操作类请求未调工具，系统自动重试一次")
                 retry = self.llm.complete(
-                    [{"role": "system", "content": SYSTEM_PROMPT}, *self.history], tools=self.tools
+                    [{"role": "system", "content": _system_prompt()}, *self.history], tools=self.tools
                 )
                 if retry.tool_calls or retry.plan:
                     return self._route_tool(retry, user_msg, st)
