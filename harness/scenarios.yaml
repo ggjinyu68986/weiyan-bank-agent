@@ -58,6 +58,14 @@ cases:
       contains: "20.00"
       after_balance_6222-0001: "58180.00"
 
+  - id: S1-007
+    name: 相对时间定时转账（回归：真机曾"一分钟后"首轮未调工具，被引导文案兜住）
+    input: 一分钟后转100元给老婆
+    expect:
+      first: confirm
+      final: auto
+      contains: 定时转账
+
   # ---- 场景2：账单分析 ----
   - id: S2-001
     name: 月度账单分析与异常识别

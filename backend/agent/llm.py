@@ -99,12 +99,16 @@ class MockLLM(BaseLLM):
             return self._tool("analyze_bills", {"account_id": USER_ACCOUNT, "month": month})
 
         # ---- 场景1 转账 ----
-        if "转" in text and any(k in text for k in ("定时", "每周", "每月", "下个月")):
+        if "转" in text and any(k in text for k in
+                                ("定时", "每周", "每月", "下个月", "明天", "后天", "下周",
+                                 "预约", "到时", "定期", "分钟后", "提前")):
+            next_run = "2026-09-28" if ("明天" in text or "后天" in text) else "2026-10-05"
+            cycle = 7 if "每周" in text else (30 if ("每月" in text or "下个月" in text) else 0)
             return self._tool("schedule_transfer", {
                 "from_account_id": USER_ACCOUNT, "to_account_id": self._pick_to(text),
                 "amount_cents": _extract_yuan(text) * 100,
                 "note": "定时" + ("给妈妈" if "妈妈" in text else ""),
-                "next_run": "2026-10-05", "cycle_days": 7 if "每周" in text else 0,
+                "next_run": next_run, "cycle_days": cycle,
             })
         if "转" in text:
             m = re.search(r"1\d{10}", text)  # 按手机号转账（赛题示例）

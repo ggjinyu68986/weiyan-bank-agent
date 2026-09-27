@@ -27,6 +27,11 @@ SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户�
 4. 常用操作示例：转账→transfer(from_account_id="6222-0001", to_account_id=收款人姓名对应账户号或手机号,
    amount_cents=金额换算成分, note=备注)——用户说"给X转Y元/转Y元给X/给手机号转X元/给X转Y块"时**必须直接调用 transfer**，
    收款人为联系人姓名（妈妈/老婆/张伟/爸爸/小王）时 to_account_id 直接填对应账户号，不要先问或先复述；
+   但话中含时间表达（定时/每周/每月/明天/后天/下周/下个月/预约/定期/到时/一分钟后/X天后等）时，
+   **必须改为调用 schedule_transfer 而不是 transfer**，next_run 一律填 YYYY-MM-DD：
+   用户给了明确日期按日期填；"明天/后天"按演示基准日推算（今天=2026-09-27，明天=2026-09-28）；
+   无法推算具体日期的相对时间（如"一分钟后""X天后""尽快"）统一填 2026-10-05（演示沙箱基准日，到期由 ⏱ 拨动触发）；
+   "每周"填 cycle_days=7、"每月/下个月"填 cycle_days=30、一次性（明天/一分钟后等）填 0。
    挂失卡片→report_card_loss(card_id="C-0001")；取消订阅→cancel_subscription(subscription_id="S-001")；
    申购理财→buy_wealth(user_id=1, product_id="WP-001", amount_cents=分)；识别订阅扣费→detect_subscriptions(account_id="6222-0001")；
    风险评估→risk_assessment(user_id=1)；年度账单→annual_report(account_id="6222-0001", year=2026)；
@@ -80,12 +85,12 @@ def build_tool_schemas() -> list[dict]:
             "amount_cents": {"type": "integer", "description": "金额，分"},
             "note": {"type": "string", "description": "备注，如：给妈妈"},
         }, ["from_account_id", "to_account_id", "amount_cents"]),
-        s("schedule_transfer", "定时转账（如每周给妈妈转500元）", {
+        s("schedule_transfer", "定时转账（如：每周给妈妈转500元、明天给老婆转100元、一分钟后转100元给老婆）", {
             "from_account_id": {"type": "string"},
             "to_account_id": {"type": "string"},
             "amount_cents": {"type": "integer"},
             "note": {"type": "string"},
-            "next_run": {"type": "string", "description": "首次执行日期 YYYY-MM-DD"},
+            "next_run": {"type": "string", "description": "首次执行日期 YYYY-MM-DD；相对时间无法推算时填 2026-10-05"},
             "cycle_days": {"type": "integer", "description": "周期天数，0=一次性"},
         }, ["from_account_id", "to_account_id", "amount_cents"]),
         s("split_bill", "AA 拆分收款（聚餐/出行费用平摊）", {
