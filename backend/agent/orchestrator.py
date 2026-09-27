@@ -177,10 +177,19 @@ class AgentOrchestrator:
 
         if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
             text = reply.text or "（无可用操作）"
-            # 幻觉兜底（第二道防线）：未调工具却输出金额/执行编号/账户号 → 疑似编造，拦截并计入可疑行为
-            if _looks_fabricated(text):
+            # 幻觉兜底（第二道防线）：查询类请求未调工具却输出金额/执行编号/账户号 → 疑似编造，拦截并计入可疑行为
+            if _looks_fabricated(user_msg, text):
                 msg = "系统拦截：该回复疑似编造账户信息（未调用任何查询工具）。请重新描述需求，我将通过工具核实。"
                 return self._record_suspicious(user_msg, "", {}, msg, st)
+            # 操作类请求但模型未调工具（如 AA/转账只文字复述）→ 引导通过工具办理（不算可疑行为）
+            if any(k in user_msg for k in OPERATION_HINTS):
+                out = AgentReply(
+                    "chat",
+                    "我还没有执行任何操作。请允许我通过工具为你办理——你可以再对我说一次，我会先展示操作详情待你确认。",
+                )
+                self._log(user_msg, "", {}, "", "chat", "", out.message)
+                self.history.append({"role": "assistant", "content": out.message})
+                return out
             out = AgentReply("chat", text)
             self._log(user_msg, "", {}, "", "chat", "", out.message)
             self.history.append({"role": "assistant", "content": out.message})
@@ -338,21 +347,27 @@ class AgentOrchestrator:
         )
 
 
-def _looks_fabricated(text: str) -> bool:
-    """幻觉兜底判定：纯文字回复中出现"金额/执行编号/账户号"且未调用任何工具 → 疑似编造。
+# 查询类 / 操作类提示词（用于区分"编造查询结果"与"操作类文字复述"）
+QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对比", "推荐", "明细", "查询", "查", "看看", "还剩", "多少钱", "多少")
+OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "订", "锁定", "申请", "还款")
 
-    命中任一样式即拦截（真实查询结果的文案必须走工具返回，不允许模型直接文字输出）：
-    - 金额：如 58200.00 元、12,345.67 元
-    - 执行编号：如 执行编号 f6668297
-    - 账户号：如 6222-0001
+
+def _looks_fabricated(user_msg: str, text: str) -> bool:
+    """幻觉兜底判定：纯文字回复编造"系统生成物"（执行编号/账户号）→ 一律拦截；
+    编造金额 → 仅当用户请求是查询类（且非操作类）才判定（操作类文字复述金额属"未调工具"，应引导而非判编造）。
     """
     if not text:
         return False
-    return bool(
-        re.search(r"执行编号\s*[0-9a-fA-F]{6,}", text)
-        or re.search(r"\d{1,3}(,\d{3})*\.\d{2}\s*元", text)
-        or re.search(r"账户\s*6222-\d{4}", text)
-    )
+    if re.search(r"执行编号\s*[0-9a-fA-F]{6,}", text):
+        return True
+    if re.search(r"账户\s*6222-\d{4}", text):
+        return True
+    is_query = any(k in user_msg for k in QUERY_HINTS)
+    is_operation = any(k in user_msg for k in OPERATION_HINTS)
+    if is_query and not is_operation:
+        if re.search(r"\d{1,3}(,\d{3})*\.\d{2}\s*元", text):
+            return True
+    return False
 
 
 def _summarize(tool: str, r) -> str:

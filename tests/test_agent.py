@@ -319,3 +319,20 @@ def test_fabricated_chat_thrice_locks():
     assert o.status()["locked"] is True
     # 锁定后查询也被拒
     assert o.handle("帮我看看余额").requires == "deny"
+
+
+class AaTextOnlyLLM(MockLLM):
+    """模拟模型对操作类请求（AA）未调工具、只文字复述金额——不是编造，应引导重试而非拦截。"""
+
+    def complete(self, messages, tools=None):
+        return LLMReply(text="好的，600元3个人AA，每人200元")
+
+
+def test_operation_text_reply_not_fabricated():
+    """操作类请求（聚餐AA）模型只文字复述金额 → 不判编造、不累计可疑，走操作引导。"""
+    o = AgentOrchestrator(llm=AaTextOnlyLLM())
+    r = o.handle("聚餐600元3个人AA")
+    assert r.requires == "chat"
+    assert "工具" in r.message and "确认" in r.message
+    assert o.status()["suspicious_count"] == 0  # 不算可疑行为
+    assert not any(rec.message and "疑似编造" in rec.message for rec in o.audit)
