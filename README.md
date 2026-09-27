@@ -23,6 +23,14 @@ uvicorn backend.api.main:app --reload
 
 > 前端聊天页与后端通过 `http://127.0.0.1:8000` 通信（CORS 已放开）。
 
+### 多渠道：同一内核，IM 渠道也可直接对话
+
+```bash
+python -m backend.channels.console   # 终端 IM 渠道（确认/强验证/熔断/审计全可用）
+```
+
+> Web/APP（frontend）与 IM（console）共用同一 Agent 内核与全部安全机制；生产可新增微信/飞书/Telegram 适配器（`backend/channels/` 协议一致）。
+
 ## 演示脚本（答辩/录屏推荐顺序）
 
 | 你说 | 预期 |
@@ -52,6 +60,7 @@ weiyan-bank-agent/
 ├── backend/
 │   ├── api/main.py            # FastAPI：Mock Bank + Agent 对话/确认/强验证/审计/tick
 │   ├── agent/                 # 编排层：llm(可插拔+Mock兜底) / prompts(工具schema) / orchestrator(权限门+DAG+审计)
+│   ├── channels/              # 渠道适配层：base(协议) / console(IM终端) / web(Web/APP)——同一内核多渠道
 │   ├── bank_sim/              # 能力层：models / seed(小明画像) / store / service(6场景25工具) / result
 │   ├── registry/              # operations.json：绿黄红权限注册表（数据驱动）
 │   └── security/              # permission.py 判定 + sandbox.py 进程级兜底

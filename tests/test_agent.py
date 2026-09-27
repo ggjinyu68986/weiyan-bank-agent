@@ -153,6 +153,61 @@ def test_transfer_by_contact_name():
     assert o.service._resolve_account("爱人") is not None
 
 
+# ========== IM 渠道（渠道适配层）：同一内核多渠道，交互循环可测 ==========
+def test_im_channel_confirm_flow():
+    """IM 渠道：黄级操作 → 渠道询问确认 → y 确认执行（与 Web 渠道同一内核）。"""
+    from backend.channels.console import process_message
+    from backend.agent.orchestrator import AgentOrchestrator
+
+    agent = AgentOrchestrator()
+    printed: list[str] = []
+
+    def fake_input(prompt: str) -> str:
+        printed.append(prompt)
+        return "y"
+
+    keep = process_message(agent, "给妈妈转800元", fake_input, printed.append)
+    assert keep is True
+    text = "\n".join(printed)
+    assert "需确认" in text and "转账" in text
+    assert "转账成功" in text
+    assert agent.service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 - 80_000
+
+
+def test_im_channel_mfa_flow():
+    """IM 渠道：红级操作 → 渠道要求验证码 → 正确验证码执行。"""
+    from backend.channels.console import process_message
+
+    agent = AgentOrchestrator()
+    printed: list[str] = []
+
+    def fake_input(prompt: str) -> str:
+        return "123456"
+
+    process_message(agent, "帮我挂失卡片", fake_input, printed.append)
+    text = "\n".join(printed)
+    assert "强验证" in text and "挂失" in text
+    assert "lost" in text
+
+
+def test_im_channel_lockout_on_wrong_code():
+    """IM 渠道：连续输错验证码 3 次 → 熔断锁定（渠道层与内核一致生效）。"""
+    from backend.channels.console import process_message
+
+    agent = AgentOrchestrator()
+    printed: list[str] = []
+    codes = iter(["000000", "000000", "000000"])
+
+    def fake_input(prompt: str) -> str:
+        return next(codes)
+
+    for _ in range(3):
+        process_message(agent, "帮我挂失卡片", fake_input, printed.append)
+    text = "\n".join(printed)
+    assert "已安全锁定" in text
+    assert agent.status()["locked"] is True
+
+
 def test_card_loss_via_agent_mfa():
     """卡片挂失（红级强验证）。"""
     o = make()
