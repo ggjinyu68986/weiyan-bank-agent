@@ -197,10 +197,14 @@ class MockLLM(BaseLLM):
         return LLMReply(tool_calls=[{"name": name, "arguments": arguments}])
 
     def _pick_to(self, text) -> str:
-        if "老婆" in text or "爱人" in text:
-            return "6222-1002"
-        if "妈妈" in text:
-            return "6222-1001"
+        """收款人解析（与联系人簿保持一致：姓名/别名 → 账户号）。"""
+        for name, acc in (
+            ("老婆", "6222-1002"), ("爱人", "6222-1002"),
+            ("妈妈", "6222-1001"), ("张伟", "6222-1003"),
+            ("爸爸", "6222-1004"), ("小王", "6222-1005"),
+        ):
+            if name in text:
+                return acc
         return USER_ACCOUNT
 
 

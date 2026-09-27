@@ -49,6 +49,15 @@ cases:
       final: auto
       contains: 转账成功
 
+  - id: S1-006
+    name: 按联系人姓名+口语单位转账（回归：真机曾首轮未调工具被拦截）
+    input: 给张伟转账20块
+    expect:
+      first: confirm
+      final: auto
+      contains: "20.00"
+      after_balance_6222-0001: "58180.00"
+
   # ---- 场景2：账单分析 ----
   - id: S2-001
     name: 月度账单分析与异常识别
