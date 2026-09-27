@@ -565,8 +565,15 @@ class BankService:
     def _account(self, account_id: str):
         return self.store.accounts.get(account_id)
 
+    # 联系人姓名 → 账户（赛题"按人名转账"，模型传姓名也能兜底解析）
+    CONTACT_ALIASES = {
+        "妈妈": "6222-1001", "母亲": "6222-1001",
+        "老婆": "6222-1002", "爱人": "6222-1002", "妻子": "6222-1002",
+        "张伟": "6222-1003",
+    }
+
     def _resolve_account(self, expr: str):
-        """按账户号或手机号解析收款账户（赛题：按人名/手机号/备注转账）。"""
+        """按账户号/手机号/联系人姓名解析收款账户（赛题：按人名/手机号/备注转账）。"""
         acc = self.store.accounts.get(expr)
         if acc:
             return acc
@@ -576,6 +583,8 @@ class BankService:
                     for a in self.store.accounts.values():
                         if a.user_id == u.id:
                             return a
+        if isinstance(expr, str) and expr in self.CONTACT_ALIASES:
+            return self.store.accounts.get(self.CONTACT_ALIASES[expr])
         return None
 
     def _append_tx(self, account_id, kind, amount_cents, counterparty, category, note):

@@ -142,6 +142,17 @@ def test_cancel_then_requery_shrinks():
     assert "某某视频" not in r2.message
 
 
+def test_transfer_by_contact_name():
+    """按人名转账（赛题场景1）：service 层兜底解析"妈妈"等联系人姓名，模型传姓名也能执行。"""
+    o = make()
+    r = o.service.transfer("6222-0001", "妈妈", 80_000, "给妈妈")
+    assert r.ok, r.message
+    assert o.service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 - 80_000
+    # 别名同样可解析
+    assert o.service._resolve_account("老婆") is not None
+    assert o.service._resolve_account("爱人") is not None
+
+
 def test_card_loss_via_agent_mfa():
     """卡片挂失（红级强验证）。"""
     o = make()
@@ -306,7 +317,7 @@ class FabricatingTableLLM(MockLLM):
 
 
 def test_fabricated_balance_chat_blocked():
-    """模型直接文字输出金额+执行编号（未调工具）→ 系统拦截，计入可疑行为。"""
+    """模型直接文字输出金额+执行编号（未调工具）→ 铁证拦截，计入可疑行为。"""
     o = AgentOrchestrator(llm=FabricatingLLM())
     r = o.handle("我的余额是多少")
     assert r.requires == "deny"
@@ -316,11 +327,13 @@ def test_fabricated_balance_chat_blocked():
     assert any(rec.message and "疑似编造" in rec.message for rec in o.audit)
 
 
-def test_fabricated_table_chat_blocked():
+def test_fabricated_table_chat_retries():
+    """流水表格纯金额（无铁证）→ 不拦截，自动重试后仍无工具 → 查询引导，用户无感。"""
     o = AgentOrchestrator(llm=FabricatingTableLLM())
     r = o.handle("最近流水")
-    assert r.requires == "deny"
-    assert "疑似编造" in r.message
+    assert r.requires == "chat"
+    assert "还没有执行任何查询" in r.message
+    assert o.status()["suspicious_count"] == 0
 
 
 def test_fabricated_chat_thrice_locks():
@@ -368,19 +381,19 @@ def test_subscription_query_not_treated_as_operation():
 
 
 class BalanceTextOnlyLLM(MockLLM):
-    """模拟模型对语序变体'我余额看看'未调工具直接编造余额 → 查询类应拦截。"""
+    """模拟模型对语序变体'我余额看看'未调工具、只文字输出金额（无铁证）→ 内部重试，不拦截不计数。"""
 
     def complete(self, messages, tools=None):
         return LLMReply(text="你的余额是 58200.00 元")
 
 
-def test_balance_variant_fabricated_blocked():
-    """'我余额看看'（查询类，语序变体）模型文字编造金额 → 仍应拦截为编造。"""
+def test_balance_variant_retries_not_blocked():
+    """'我余额看看'（查询类）模型文字编造金额（无执行编号/账户号）→ 走内部重试 → 查询引导，不拦截、不累计可疑。"""
     o = AgentOrchestrator(llm=BalanceTextOnlyLLM())
     r = o.handle("我余额看看")
-    assert r.requires == "deny"
-    assert "疑似编造" in r.message
-    assert o.status()["suspicious_count"] == 1
+    assert r.requires == "chat"
+    assert "还没有执行任何查询" in r.message
+    assert o.status()["suspicious_count"] == 0
 
 
 class RetryThenToolLLM(MockLLM):

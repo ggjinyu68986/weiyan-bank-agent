@@ -177,14 +177,13 @@ class AgentOrchestrator:
 
         if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
             text = reply.text or "（无可用操作）"
-            # 幻觉兜底（第二道防线）：查询类请求未调工具却输出金额/执行编号/账户号 → 疑似编造，拦截并计入可疑行为
-            if _looks_fabricated(user_msg, text):
-                msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
-                return self._record_suspicious(user_msg, "", {}, msg, st)
             is_operation = any(k in user_msg for k in OPERATION_HINTS)
             is_query = any(k in user_msg for k in QUERY_HINTS)
-            # 操作类请求但模型未调工具（如转账/AA只文字复述）→ 系统自动重试一次（把"必须调工具"再喂给模型），
-            # 仍失败才引导用户重说（提升真实模型成功率，杜绝"复述即假装完成"）
+            # 铁证编造（执行编号/账户号——系统唯一生成物，未调工具不可能合法出现）→ 立即拦截并计入可疑行为
+            if _looks_fabricated(text):
+                msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
+                return self._record_suspicious(user_msg, "", {}, msg, st)
+            # 查询/操作类请求模型未调工具（含疑似金额文字）→ 自动重试一次；模型文字永不透传给用户。
             if is_operation or is_query:
                 self.history.append({
                     "role": "assistant",
@@ -198,6 +197,10 @@ class AgentOrchestrator:
                 )
                 if retry.tool_calls or retry.plan:
                     return self._route_tool(retry, user_msg, st)
+                # 重试后仍编造铁证 → 拦截并计入可疑行为（与熔断联动）
+                if _looks_fabricated(retry.text or ""):
+                    msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
+                    return self._record_suspicious(user_msg, "", {}, msg, st)
                 if is_operation:
                     out = AgentReply(
                         "chat",
@@ -380,22 +383,15 @@ QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对�
 OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "锁定", "申请", "还款")
 
 
-def _looks_fabricated(user_msg: str, text: str) -> bool:
-    """幻觉兜底判定：纯文字回复编造"系统生成物"（执行编号/账户号）→ 一律拦截；
-    编造金额 → 仅当用户请求是查询类（且非操作类）才判定（操作类文字复述金额属"未调工具"，应引导而非判编造）。
-    """
+def _looks_fabricated(text: str) -> bool:
+    """铁证编造判定：纯文字回复中出现"执行编号/账户号"（系统唯一生成物）→ 模型必然造假，立即拦截。
+    疑似金额文字不再单独拦截——查询/操作类未调工具一律自动重试，编造内容永不透传。"""
     if not text:
         return False
-    if re.search(r"执行编号\s*[0-9a-fA-F]{6,}", text):
-        return True
-    if re.search(r"账户\s*6222-\d{4}", text):
-        return True
-    is_query = any(k in user_msg for k in QUERY_HINTS)
-    is_operation = any(k in user_msg for k in OPERATION_HINTS)
-    if is_query and not is_operation:
-        if re.search(r"\d{1,3}(,\d{3})*\.\d{2}\s*元", text):
-            return True
-    return False
+    return bool(
+        re.search(r"执行编号\s*[0-9a-fA-F]{6,}", text)
+        or re.search(r"账户\s*6222-\d{4}", text)
+    )
 
 
 def _summarize(tool: str, r) -> str:
