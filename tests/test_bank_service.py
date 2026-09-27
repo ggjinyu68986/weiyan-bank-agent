@@ -300,3 +300,15 @@ def test_freeze_unfreeze_card():
     assert svc.store.cards["C-0001"].locked is True
     assert svc.unfreeze_card("C-0001").data["status"] == "active"
     assert svc.store.cards["C-0001"].locked is False
+
+
+def test_list_cards():
+    """我的卡列表：按用户返回卡片（类型/状态/额度/锁定），卡片页数据源。"""
+    svc = BankService()
+    r = svc.list_cards(1)
+    assert r.ok
+    assert r.data["count"] >= 1
+    card = r.data["cards"][0]
+    assert card["id"] == "C-0001"
+    assert card["status"] == "active"
+    assert card["daily_limit_cents"] == 2_000_000

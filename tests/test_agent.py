@@ -142,6 +142,18 @@ def test_cancel_then_requery_shrinks():
     assert "某某视频" not in r2.message
 
 
+def test_api_agent_shares_service_instance():
+    """API 层数据一致性：Agent 与查询接口必须共用同一 BankService 实例。
+    曾为真机 bug——转账在 agent 私有 store 扣款、balance 查询读另一实例，导致"转800余额不变"。"""
+    from backend.api.main import agent, service
+    assert agent.service is service
+    # 通过同一实例走完整转账，余额必须联动变化
+    r1 = agent.handle("给妈妈转800元")
+    r2 = agent.confirm(r1.pending_id)
+    assert r2.requires == "auto"
+    assert service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 - 80_000
+
+
 def test_transfer_by_contact_name():
     """按人名转账（赛题场景1）：service 层兜底解析"妈妈"等联系人姓名，模型传姓名也能执行。"""
     o = make()

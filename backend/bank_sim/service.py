@@ -293,6 +293,13 @@ class BankService:
         )
 
     # ========== 场景4：卡片管理 ==========
+    def list_cards(self, user_id: int) -> OpResult:
+        """我的卡列表（卡片页数据源：类型/状态/额度/锁定）。"""
+        cards = [c for c in self.store.cards.values() if c.user_id == user_id]
+        return OpResult.success(
+            {"count": len(cards), "cards": [c.model_dump(mode="json") for c in cards]}
+        )
+
     def apply_virtual_card(self, user_id: int) -> OpResult:
         cid = f"CV-{len(self.store.cards) + 1:04d}"
         card = Card(id=cid, user_id=user_id, card_type="virtual", status="active",

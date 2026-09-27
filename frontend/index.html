@@ -2,74 +2,163 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>微言 · AI 银行智能体</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <div class="brand">
-    <div class="logo">微</div>
-    <div>
-      <div class="title">微言 · AI 银行智能体</div>
-      <div class="subtitle">说话就能办业务 · 2026 FinTechathon</div>
-    </div>
-  </div>
-  <div class="actions">
-    <button id="btnTick" class="btn ghost">定时器演示</button>
-    <button id="btnAudit" class="btn ghost">审计日志</button>
-    <button id="btnReset" class="btn ghost">重置演示</button>
-  </div>
-</header>
 
-<main id="chat">
-  <div class="bubble assistant first">
-    <div class="meta">微言</div>
-    <div class="text">你好，我是微言。试着对我说：<br>
-      「帮我看看余额」·「给妈妈转800元」·「转5万元给妈妈」·「我有哪些订阅」
-    </div>
-  </div>
-</main>
+<!-- 异常熔断横幅（全局置顶） -->
+<div id="lockBanner" class="lock-banner hidden">⚠ 账户已安全锁定（异常熔断）—— 请前往「审计」页点击「重置演示」解锁</div>
 
-<footer>
-  <input id="input" type="text" placeholder="说一句你想办的事…" autocomplete="off">
-  <button id="send" class="btn primary">发送</button>
-</footer>
+<div class="phone">
+  <!-- 手机状态栏（装饰） -->
+  <div class="statusbar">
+    <span class="sb-time">9:41</span>
+    <span class="sb-right">📶 🔋</span>
+  </div>
+
+  <!-- App 头栏 -->
+  <header class="appbar">
+    <div class="appbar-brand">
+      <div class="logo">微</div>
+      <div>
+        <div class="appbar-title">微言</div>
+        <div class="appbar-sub">AI 银行智能体 · 说话就能办业务</div>
+      </div>
+    </div>
+    <div class="appbar-actions">
+      <button id="btnTick" class="icon-btn" title="系统定时器（时间沙箱）">⏱</button>
+      <div id="secBadge" class="sec-badge ok">安全在线</div>
+    </div>
+  </header>
+
+  <!-- 页面容器（Tab 切换） -->
+  <main id="page">
+
+    <!-- ============ 对话 Tab ============ -->
+    <section id="tab-chat" class="tab active">
+      <div class="asset-card">
+        <div class="asset-head">
+          <span class="asset-label">可用余额（元）</span>
+          <button id="btnRefresh" class="asset-refresh">↻ 刷新</button>
+        </div>
+        <div id="assetAmount" class="asset-amount">--</div>
+        <div id="assetDetail" class="asset-detail">主账户 6222-0001</div>
+        <div class="quick-grid">
+          <button class="quick" data-msg="给妈妈转800元">转账</button>
+          <button class="quick" data-msg="帮我分析这个月的账单">账单</button>
+          <button class="quick" data-msg="有哪些理财可以买">理财</button>
+          <button class="quick" data-msg="我有哪些订阅">订阅</button>
+        </div>
+      </div>
+      <div id="chat" class="chat-area">
+        <div class="bubble assistant first">
+          <div class="meta">微言 · AI 银行助手</div>
+          <div class="text">你好，我是微言。试着对我说：<br>
+            「帮我看看余额」·「给妈妈转800元」·「转5万元给妈妈」·「我有哪些订阅」
+          </div>
+        </div>
+      </div>
+      <div class="inputbar">
+        <input id="input" type="text" placeholder="说一句你想办的事…" autocomplete="off">
+        <button id="send" class="btn primary">发送</button>
+      </div>
+    </section>
+
+    <!-- ============ 账单 Tab ============ -->
+    <section id="tab-bills" class="tab">
+      <div class="tab-head">
+        <div class="tab-title">账单分析</div>
+        <div class="month-switch">
+          <button id="billPrev" class="ghost-btn">◀</button>
+          <span id="billPeriod" class="bill-period">--</span>
+          <button id="billNext" class="ghost-btn">▶</button>
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-card inc"><div class="s-label">收入</div><div id="billIncome" class="s-val">--</div></div>
+        <div class="summary-card exp"><div class="s-label">支出</div><div id="billExpense" class="s-val">--</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">支出分类</div>
+        <div id="billChart" class="bill-chart"></div>
+        <div id="billCats" class="cat-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">⚠ 异常交易识别</div>
+        <div id="billAnomalies" class="anomaly-list"></div>
+      </div>
+    </section>
+
+    <!-- ============ 卡片 Tab ============ -->
+    <section id="tab-cards" class="tab">
+      <div class="tab-head">
+        <div class="tab-title">我的卡片</div>
+        <button id="btnAddCard" class="primary-btn">+ 申请虚拟卡</button>
+      </div>
+      <div id="cardList" class="card-list"></div>
+      <div class="panel">
+        <div class="panel-title">卡片操作（均需安全确认/强验证）</div>
+        <div class="op-grid">
+          <button class="op" data-msg="帮我冻结我的卡片">冻结</button>
+          <button class="op" data-msg="帮我解冻我的卡片">解冻</button>
+          <button class="op" data-msg="帮我挂失卡片">挂失</button>
+          <button class="op" data-msg="帮我解挂我的卡片">解挂</button>
+          <button class="op" data-msg="把卡片日额度调整到 5000 元">调额度</button>
+          <button class="op" data-msg="帮我改个密码">改密码</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 审计 Tab ============ -->
+    <section id="tab-audit" class="tab">
+      <div class="tab-head">
+        <div class="tab-title">操作审计 · 决策链路</div>
+        <button id="btnReset" class="ghost-btn">重置演示</button>
+      </div>
+      <div class="panel">
+        <div class="panel-title">每次关键操作完整记录：风险等级 / 动作 / 决策链路</div>
+        <div id="auditBody" class="audit-body"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 底部 Tab 栏 -->
+  <nav class="tabbar">
+    <button class="tab-item active" data-tab="chat"><span class="ti">💬</span>对话</button>
+    <button class="tab-item" data-tab="bills"><span class="ti">📊</span>账单</button>
+    <button class="tab-item" data-tab="cards"><span class="ti">💳</span>卡片</button>
+    <button class="tab-item" data-tab="audit"><span class="ti">📋</span>审计</button>
+  </nav>
+</div>
 
 <!-- MFA 验证码弹层 -->
 <div id="mfaMask" class="mask hidden">
-  <div class="mfa-card">
-    <div class="mfa-title">多因子强验证（红级操作）</div>
-    <div id="mfaDesc" class="mfa-desc"></div>
-    <input id="mfaCode" class="mfa-input" placeholder="输入短信验证码" autocomplete="off">
-    <div class="mfa-hint">演示验证码：123456</div>
-    <div class="mfa-actions">
+  <div class="modal">
+    <div class="modal-title">多因子强验证（红级操作）</div>
+    <div id="mfaDesc" class="modal-desc"></div>
+    <input id="mfaCode" class="modal-input" placeholder="输入短信验证码" autocomplete="off">
+    <div class="modal-hint">演示验证码：123456</div>
+    <div class="modal-actions">
       <button id="mfaCancel" class="btn ghost">取消</button>
       <button id="mfaOk" class="btn primary">验证并执行</button>
     </div>
   </div>
 </div>
 
-<!-- 定时器演示弹层（时间沙箱：模拟日期触发定时转账/生日事件） -->
+<!-- 定时器演示弹层（时间沙箱） -->
 <div id="tickMask" class="mask hidden">
-  <div class="mfa-card">
-    <div class="mfa-title">系统定时器 · 时间沙箱</div>
-    <div class="mfa-desc">拨动到任意日期，自动执行到期定时转账与事件联动（如生日前 2 天订购鲜花蛋糕）。</div>
-    <input id="tickDate" class="mfa-input" value="2026-12-18" autocomplete="off">
-    <div class="mfa-hint">试试：2026-10-05（到期周转）· 2026-12-18（生日联动）</div>
-    <div class="mfa-actions">
+  <div class="modal">
+    <div class="modal-title">系统定时器 · 时间沙箱</div>
+    <div class="modal-desc">拨动到任意日期，自动执行到期定时转账与事件联动（如生日前 2 天订购鲜花蛋糕）。</div>
+    <input id="tickDate" class="modal-input" value="2026-12-18" autocomplete="off">
+    <div class="modal-hint">试试：2026-10-05（到期周转）· 2026-12-18（生日联动）</div>
+    <div class="modal-actions">
       <button id="tickCancel" class="btn ghost">取消</button>
       <button id="tickOk" class="btn primary">执行拨动</button>
     </div>
-  </div>
-</div>
-
-<!-- 审计日志弹层 -->
-<div id="auditMask" class="mask hidden">
-  <div class="audit-card">
-    <div class="mfa-title">操作审计 · 决策链路</div>
-    <div id="auditBody" class="audit-body"></div>
-    <div class="mfa-actions"><button id="auditClose" class="btn ghost">关闭</button></div>
   </div>
 </div>
 

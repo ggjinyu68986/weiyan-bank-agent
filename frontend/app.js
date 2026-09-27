@@ -1,44 +1,87 @@
-/* 微言 · 前端聊天页逻辑（零依赖，file:// 直接打开可用） */
+/* 微言 · 前端逻辑（手机银行风格，零依赖，file:// 直接打开可用） */
 (function () {
   "use strict";
 
   var API = "http://127.0.0.1:8000/api/v1";
+  var ACC = "6222-0001";
 
   var chat = document.getElementById("chat");
   var input = document.getElementById("input");
-  var sendBtn = document.getElementById("send");
 
   var TOOL_NAMES = {
     query_balance: "余额查询",
     list_transactions: "交易查询",
     transfer: "转账",
     list_subscriptions: "订阅查询",
+    analyze_bills: "账单分析",
+    buy_wealth: "理财申购",
+    report_card_loss: "卡片挂失",
   };
-
   var RISK_BADGE = { green: "green", yellow: "yellow", red: "red", deny: "deny", chat: "chat", execute: "execute" };
 
-  function fmtYuan(cents) {
-    return (cents / 100).toFixed(2) + " 元";
-  }
+  function fmtYuan(cents) { return (cents / 100).toFixed(2) + " 元"; }
+  function fmtNum(cents) { return (cents / 100).toFixed(2); }
+  function scrollChat() { chat.scrollTop = chat.scrollHeight; }
 
-  function scrollBottom() {
-    chat.scrollTop = chat.scrollHeight;
-  }
+  /* ========== Tab 切换 ========== */
+  var tabs = document.querySelectorAll(".tab-item");
+  tabs.forEach(function (t) {
+    t.onclick = function () {
+      tabs.forEach(function (x) { x.classList.remove("active"); });
+      document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
+      t.classList.add("active");
+      document.getElementById("tab-" + t.dataset.tab).classList.add("active");
+      if (t.dataset.tab === "bills") loadBills();
+      if (t.dataset.tab === "cards") loadCards();
+      if (t.dataset.tab === "audit") loadAudit();
+      if (t.dataset.tab === "chat") refreshAsset();
+    };
+  });
 
+  /* ========== 资产卡 ========== */
+  function refreshAsset() {
+    fetch(API + "/accounts/" + ACC + "/balance")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.data) d = d.data;
+        document.getElementById("assetAmount").textContent = fmtNum(d.available_cents);
+        document.getElementById("assetDetail").textContent =
+          "主账户 " + d.account_id + " · 总 " + fmtYuan(d.balance_cents) + " · 锁定 " + fmtNum(d.locked_cents);
+      })
+      .catch(function () { /* 后端未启动时保持占位 */ });
+  }
+  document.getElementById("btnRefresh").onclick = refreshAsset;
+
+  /* 快捷操作：把话术发给 Agent（演示：点击按钮 = 说一句话，仍走安全门） */
+  function quickSend(msg) {
+    input.value = msg;
+    send();
+  }
+  document.querySelectorAll(".quick, .op").forEach(function (b) {
+    b.onclick = function () {
+      // 跳回对话 tab 再发送
+      tabs.forEach(function (x) { x.classList.remove("active"); });
+      document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
+      document.querySelector('.tab-item[data-tab="chat"]').classList.add("active");
+      document.getElementById("tab-chat").classList.add("active");
+      quickSend(b.dataset.msg);
+    };
+  });
+
+  /* ========== 聊天 ========== */
   function addUser(text) {
     var d = document.createElement("div");
     d.className = "bubble user";
     d.innerHTML = '<div class="meta">小明</div><div class="text"></div>';
     d.querySelector(".text").textContent = text;
     chat.appendChild(d);
-    scrollBottom();
+    scrollChat();
   }
-
   function addAssistant(text, opts) {
     opts = opts || {};
     var d = document.createElement("div");
     d.className = "bubble assistant" + (opts.deny ? " deny" : "");
-    d.innerHTML = '<div class="meta">微言</div><div class="text"></div>';
+    d.innerHTML = '<div class="meta">微言 · AI 银行助手</div><div class="text"></div>';
     d.querySelector(".text").textContent = text;
     if (opts.eid) {
       var e = document.createElement("div");
@@ -47,28 +90,19 @@
       d.appendChild(e);
     }
     chat.appendChild(d);
-    scrollBottom();
+    scrollChat();
   }
-
   function addTyping() {
     var d = document.createElement("div");
     d.className = "typing";
     d.id = "typing";
     d.innerHTML = "<i></i><i></i><i></i>";
     chat.appendChild(d);
-    scrollBottom();
-    return d;
+    scrollChat();
   }
+  function removeTyping() { var t = document.getElementById("typing"); if (t) t.remove(); }
 
-  function removeTyping() {
-    var t = document.getElementById("typing");
-    if (t) t.remove();
-  }
-
-  function pendingCancel() {
-    var card = document.querySelector(".confirm-card");
-    if (card) card.remove();
-  }
+  function pendingCancel() { var card = document.querySelector(".confirm-card"); if (card) card.remove(); }
 
   function addConfirmCard(reply) {
     pendingCancel();
@@ -85,7 +119,7 @@
     var d = document.createElement("div");
     d.className = "confirm-card";
     d.innerHTML =
-      '<div class="tag">黄级操作 · 需要你确认</div>' +
+      '<div class="tag">🟡 黄级操作 · 需要你确认</div>' +
       '<div class="row">' + desc.join("</div><div class='row'>") + "</div>" +
       '<div class="btns"><button class="btn ok">确认执行</button><button class="btn no">取消</button></div>';
     chat.appendChild(d);
@@ -95,29 +129,25 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pending_id: reply.pending_id }),
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          d.remove();
-          renderReply(res);
-        });
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        d.remove();
+        renderReply(res);
+      });
     };
     d.querySelector(".no").onclick = function () { d.remove(); addAssistant("操作已取消。"); };
-    scrollBottom();
+    scrollChat();
   }
 
   /* MFA 弹层（红级） */
   function openMfa(reply) {
     var mask = document.getElementById("mfaMask");
-    var desc = document.getElementById("mfaDesc");
-    desc.innerHTML =
+    document.getElementById("mfaDesc").innerHTML =
       "操作：" + (TOOL_NAMES[reply.tool] || reply.tool) +
       (reply.params && reply.params.amount_cents ? " · " + fmtYuan(reply.params.amount_cents) : "") +
       "<br>" + reply.message;
     mask.classList.remove("hidden");
     document.getElementById("mfaCode").value = "";
     document.getElementById("mfaCode").focus();
-
     function submit() {
       var code = document.getElementById("mfaCode").value.trim();
       if (!code) return;
@@ -126,13 +156,11 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pending_id: reply.pending_id, mfa_code: code }),
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-          mask.classList.add("hidden");
-          document.getElementById("mfaOk").disabled = false;
-          renderReply(res);
-        });
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        mask.classList.add("hidden");
+        document.getElementById("mfaOk").disabled = false;
+        renderReply(res);
+      });
     }
     document.getElementById("mfaOk").onclick = submit;
     document.getElementById("mfaCancel").onclick = function () {
@@ -141,75 +169,148 @@
     };
   }
 
+  /* 安全状态徽章 */
+  function refreshSecBadge() {
+    fetch(API + "/agent/status")
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        var badge = document.getElementById("secBadge");
+        if (s.locked) {
+          badge.className = "sec-badge locked";
+          badge.textContent = "已锁定（熔断）";
+          showLockBanner();
+        } else {
+          badge.className = "sec-badge ok";
+          badge.textContent = "安全在线";
+          hideLockBanner();
+        }
+      })
+      .catch(function () {});
+  }
+  function showLockBanner() { document.getElementById("lockBanner").classList.remove("hidden"); }
+  function hideLockBanner() { document.getElementById("lockBanner").classList.add("hidden"); }
+
   function renderReply(res) {
     if (res.requires === "chat") { addAssistant(res.message); return; }
     if (res.requires === "confirm") { addConfirmCard(res); return; }
     if (res.requires === "mfa") { openMfa(res); return; }
     addAssistant(res.message, { deny: res.requires === "deny", eid: res.execution_id });
-    if (res.message.indexOf("已安全锁定") >= 0) { showLockBanner(); }
-    if (res.requires === "auto" && res.tool === "analyze_bills") { renderBillChart(); }
+    if (res.requires === "deny" && res.message.indexOf("已安全锁定") >= 0) {
+      refreshSecBadge();
+    }
+    if (res.requires === "auto" && res.tool === "analyze_bills") {
+      addAssistant("已生成账单图表，可点击底部「账单」查看可视化分析。");
+      loadBills();
+    }
+    if (res.tool === "apply_virtual_card" || res.tool === "freeze_card" || res.tool === "unfreeze_card" ||
+        res.tool === "report_card_loss" || res.tool === "unlock_card" || res.tool === "adjust_card_limit") {
+      loadCards(); // 卡片页保持同步
+    }
+    if (res.execution_id) refreshAsset();
   }
 
-  /* 异常熔断：安全锁定横幅（连续验证失败/可疑行为后出现，重置可解锁） */
-  function showLockBanner() {
-    if (document.getElementById("lockBanner")) return;
-    var b = document.createElement("div");
-    b.id = "lockBanner";
-    b.className = "lock-banner";
-    b.innerHTML = "⚠ 账户已安全锁定（异常熔断）—— 点击「重置演示」可解锁并恢复银行数据";
-    document.body.insertBefore(b, document.body.firstChild);
-  }
-
-  /* 账单分析可视化：分类环形图 + 异常列表 */
-  function renderBillChart() {
-    fetch(API + "/agent/bills")
+  /* ========== 账单 Tab ========== */
+  var billMonth = null; // null = 当前月（后端默认）
+  function loadBills() {
+    var q = billMonth ? "?month=" + billMonth : "";
+    fetch(API + "/agent/bills" + q)
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        var box = document.createElement("div");
-        box.className = "bubble assistant chart";
-        box.innerHTML = '<div class="meta">微言 · 账单可视化</div>';
-        var title = document.createElement("div");
-        title.className = "chart-title";
-        title.textContent = d.period + " 支出分类（总支出 " + fmtYuan(Math.abs(d.total_expense_cents)) + "）";
-        box.appendChild(title);
-        var chartDiv = document.createElement("div");
-        chartDiv.style.cssText = "width:100%;height:220px;";
-        box.appendChild(chartDiv);
-        var listDiv = document.createElement("div");
-        listDiv.className = "anomaly-list";
-        if (d.anomaly_count > 0) {
-          listDiv.innerHTML = '<div class="anomaly-head">⚠ 识别到 ' + d.anomaly_count + ' 笔异常交易</div>' +
-            d.anomalies.map(function (a) {
-              return '<div class="anomaly-row"><b>' + a.counterparty + '</b> ' + fmtYuan(a.amount_cents) +
-                "（" + a.reason + "）</div>";
-            }).join("");
+        document.getElementById("billPeriod").textContent = d.period;
+        document.getElementById("billIncome").textContent = "+" + fmtNum(d.total_income_cents) + " 元";
+        document.getElementById("billExpense").textContent = fmtNum(Math.abs(d.total_expense_cents)) + " 元";
+
+        var cats = d.by_category.filter(function (c) { return c.amount_cents < 0; });
+        document.getElementById("billCats").innerHTML = cats.map(function (c) {
+          return '<div class="cat-row"><span class="c-name">' + c.category + "</span>" +
+            '<span class="c-amt">' + fmtNum(Math.abs(c.amount_cents)) + " 元 · " + c.count + " 笔</span></div>";
+        }).join("");
+
+        var box = document.getElementById("billAnomalies");
+        if (!d.anomaly_count) {
+          box.innerHTML = '<div class="anomaly-empty">✅ 未识别到异常交易</div>';
+        } else {
+          box.innerHTML = d.anomalies.map(function (a) {
+            return '<div class="anomaly-row"><b>' + a.counterparty + "</b> " + fmtYuan(a.amount_cents) +
+              '<div class="reason">⚠ ' + a.reason + (a.note ? " · " + a.note : "") + "</div></div>";
+          }).join("");
         }
-        box.appendChild(listDiv);
-        chat.appendChild(box);
-        scrollBottom();
+
         if (window.echarts) {
-          var cats = d.by_category.filter(function (c) { return c.amount_cents < 0; });
-          var chart = echarts.init(chartDiv);
+          var chart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
           chart.setOption({
             tooltip: { trigger: "item", formatter: "{b}: {c} 元 ({d}%)" },
-            legend: { bottom: 0, textStyle: { fontSize: 11 } },
+            legend: { bottom: 0, textStyle: { fontSize: 10, color: "#6B7280" } },
+            color: ["#1A4B8C", "#C9A227", "#0E9F6E", "#C2610C", "#7C3AED", "#0EA5E9"],
             series: [{
-              type: "pie", radius: ["42%", "68%"], center: ["50%", "44%"],
-              itemStyle: { borderRadius: 4, borderColor: "#fff", borderWidth: 1 },
+              type: "pie", radius: ["46%", "70%"], center: ["50%", "42%"],
+              itemStyle: { borderRadius: 5, borderColor: "#fff", borderWidth: 1.5 },
               label: { show: false },
-              data: cats.map(function (c) {
-                return { name: c.category, value: Math.abs(c.amount_cents) / 100 };
-              }),
+              data: cats.map(function (c) { return { name: c.category, value: Math.abs(c.amount_cents) / 100 }; }),
             }],
           });
+        }
+      });
+  }
+  document.getElementById("billPrev").onclick = function () {
+    var d = document.getElementById("billPeriod").textContent.split("-");
+    if (d.length === 2) {
+      var m = parseInt(d[1], 10) - 1;
+      if (m >= 1) { billMonth = m; loadBills(); }
+    }
+  };
+  document.getElementById("billNext").onclick = function () {
+    var d = document.getElementById("billPeriod").textContent.split("-");
+    if (d.length === 2) {
+      var m = parseInt(d[1], 10) + 1;
+      if (m <= 12) { billMonth = m; loadBills(); }
+    }
+  };
+
+  /* ========== 卡片 Tab ========== */
+  function loadCards() {
+    fetch(API + "/accounts/" + ACC + "/cards")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.data) d = d.data;
+        var list = document.getElementById("cardList");
+        if (!d.cards.length) { list.innerHTML = '<div class="anomaly-empty">暂无卡片</div>'; return; }
+        list.innerHTML = d.cards.map(function (c) {
+          var statusText = c.status === "active" ? "正常" : c.status === "frozen" ? "已冻结" : c.status === "lost" ? "已挂失" : c.status;
+          var cls = (c.status === "active") ? "active" : "lost";
+          var cardNo = c.id + " · " + (c.card_type === "virtual" ? "虚拟卡" : "借记卡");
+          return '<div class="bank-card">' +
+            '<div class="card-top"><span>' + cardNo + '</span><span class="badge2 ' + cls + '">' + statusText + "</span></div>" +
+            '<div class="card-no">•••• •••• •••• ' + c.id.slice(-4) + "</div>" +
+            '<div class="card-bottom"><span>日限额 ' + fmtNum(c.daily_limit_cents) + " 元</span>" +
+            (c.locked ? '<span style="color:#FECACA">已锁定</span>' : "<span>持卡人：小明</span>") + "</div></div>";
+        }).join("");
+      });
+  }
+  document.getElementById("btnAddCard").onclick = function () { quickSend("申请一张虚拟卡"); };
+
+  /* ========== 审计 Tab ========== */
+  function loadAudit() {
+    fetch(API + "/agent/audit")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var body = document.getElementById("auditBody");
+        if (!data.records.length) {
+          body.innerHTML = '<div class="audit-empty">暂无审计记录——说一句「帮我看看余额」试试</div>';
         } else {
-          chartDiv.style.display = "none";
-          box.appendChild(document.createTextNode("（离线环境未加载图表库，仅显示文字）"));
+          body.innerHTML = data.records.map(function (rec) {
+            var badge = RISK_BADGE[rec.risk] || "execute";
+            return '<div class="audit-row">' +
+              '<div class="a-time">' + rec.ts.replace("T", " ").slice(0, 19) + "</div>" +
+              '<span class="a-tool">' + (rec.tool || "（对话）") + "</span>" +
+              '<span class="badge ' + badge + '">' + (rec.risk || rec.action) + "</span>" +
+              "<div>" + rec.message + "</div></div>";
+          }).join("");
         }
       });
   }
 
-  /* 定时器演示（时间沙箱） */
+  /* ========== 定时器演示（时间沙箱） ========== */
   function openTick() {
     document.getElementById("tickMask").classList.remove("hidden");
     document.getElementById("tickDate").focus();
@@ -224,42 +325,20 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date: date }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        document.getElementById("tickMask").classList.add("hidden");
-        document.getElementById("tickOk").disabled = false;
-        removeTyping();
-        renderReply(res);
-      });
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      document.getElementById("tickMask").classList.add("hidden");
+      document.getElementById("tickOk").disabled = false;
+      removeTyping();
+      renderReply(res);
+    });
   }
+  document.getElementById("btnTick").onclick = openTick;
+  document.getElementById("tickOk").onclick = runTick;
+  document.getElementById("tickCancel").onclick = function () {
+    document.getElementById("tickMask").classList.add("hidden");
+  };
 
-  /* 审计日志弹层 */
-  function openAudit() {
-    fetch(API + "/agent/audit")
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var body = document.getElementById("auditBody");
-        body.innerHTML = "";
-        if (!data.records.length) {
-          body.innerHTML = '<div style="color:#6b7280;padding:12px;">暂无审计记录</div>';
-        } else {
-          data.records.forEach(function (rec) {
-            var row = document.createElement("div");
-            row.className = "audit-row";
-            var badge = RISK_BADGE[rec.risk] || "execute";
-            row.innerHTML =
-              '<div class="a-time">' + rec.ts.replace("T", " ").slice(0, 19) + "</div>" +
-              '<span class="a-tool">' + (rec.tool || "（对话）") + "</span>" +
-              '<span class="badge ' + badge + '">' + (rec.risk || rec.action) + "</span>" +
-              "<div>" + rec.message + "</div>";
-            body.appendChild(row);
-          });
-        }
-        document.getElementById("auditMask").classList.remove("hidden");
-      });
-  }
-
+  /* ========== 发送 ========== */
   function send() {
     var text = input.value.trim();
     if (!text) return;
@@ -270,39 +349,41 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        removeTyping();
-        renderReply(res);
-      })
-      .catch(function (e) {
-        removeTyping();
-        addAssistant("连接失败，请确认后端已启动：uvicorn backend.api.main:app --reload", { deny: true });
-      });
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      removeTyping();
+      renderReply(res);
+    }).catch(function () {
+      removeTyping();
+      addAssistant("连接失败，请确认后端已启动：uvicorn backend.api.main:app --reload", { deny: true });
+    });
   }
-
-  sendBtn.onclick = send;
+  document.getElementById("send").onclick = send;
   input.onkeydown = function (e) { if (e.key === "Enter") send(); };
-  document.getElementById("btnAudit").onclick = openAudit;
-  document.getElementById("btnTick").onclick = openTick;
-  document.getElementById("tickOk").onclick = runTick;
-  document.getElementById("tickCancel").onclick = function () {
-    document.getElementById("tickMask").classList.add("hidden");
-  };
+
+  /* ========== 重置演示 ========== */
   document.getElementById("btnReset").onclick = function () {
     fetch(API + "/agent/reset", { method: "POST" })
       .then(function () {
         chat.innerHTML = "";
         var d = document.createElement("div");
         d.className = "bubble assistant first";
-        d.innerHTML = '<div class="meta">微言</div><div class="text">会话已重置（银行数据已复原）。试试「帮我看看余额」。</div>';
+        d.innerHTML = '<div class="meta">微言 · AI 银行助手</div><div class="text">会话已重置（银行数据已复原，锁定已解除）。试试「帮我看看余额」。</div>';
         chat.appendChild(d);
+        refreshAsset();
+        refreshSecBadge();
+        billMonth = null;
+        loadBills();
+        loadCards();
+        loadAudit();
       });
   };
-  document.getElementById("auditClose").onclick = function () {
-    document.getElementById("auditMask").classList.add("hidden");
-  };
 
+  /* 弹层关闭 */
+  document.getElementById("mfaCancel").onclick = function () {};
+
+  /* 初始化 */
+  refreshAsset();
+  refreshSecBadge();
   input.focus();
+  setInterval(refreshSecBadge, 5000);
 })();

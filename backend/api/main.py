@@ -27,7 +27,9 @@ app.add_middleware(
 )
 
 service = BankService()
-agent = AgentOrchestrator()
+# 关键：Agent 与查询接口必须共用同一个 BankService 实例（同一份 store），
+# 否则"转账扣款"发生在 agent 私有 store、查询读的是另一份数据 → 余额不变（曾为真机演示 bug）。
+agent = AgentOrchestrator(service=service)
 
 
 # ---------- Mock Bank 接口 ----------
@@ -59,6 +61,15 @@ def get_balance(account_id: str):
 @app.get("/api/v1/accounts/{account_id}/transactions")
 def get_transactions(account_id: str, limit: int = 50):
     return _resp(service.list_transactions(account_id, limit))
+
+
+@app.get("/api/v1/accounts/{account_id}/cards")
+def get_cards(account_id: str):
+    """我的卡列表（卡片页数据源）。"""
+    acc = service.store.accounts.get(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="ACCOUNT_NOT_FOUND")
+    return _resp(service.list_cards(acc.user_id))
 
 
 @app.post("/api/v1/transfers")

@@ -21,7 +21,7 @@ uvicorn backend.api.main:app --reload
 
 然后**双击打开 `frontend/index.html`**（浏览器直接可用，零构建）。
 
-> 前端聊天页与后端通过 `http://127.0.0.1:8000` 通信（CORS 已放开）。
+> 前端聊天页（手机银行风格）与后端通过 `http://127.0.0.1:8000` 通信（CORS 已放开）。
 
 ### 多渠道：同一内核，IM 渠道也可直接对话
 
@@ -64,7 +64,7 @@ weiyan-bank-agent/
 │   ├── bank_sim/              # 能力层：models / seed(小明画像) / store / service(6场景25工具) / result
 │   ├── registry/              # operations.json：绿黄红权限注册表（数据驱动）
 │   └── security/              # permission.py 判定 + sandbox.py 进程级兜底
-├── frontend/                  # 纯 HTML/JS 聊天页 + ECharts（零构建）
+├── frontend/                  # 手机银行风格前端：四 Tab（对话/账单/卡片/审计）+ ECharts（零构建）
 ├── harness/                   # 自动评测：YAML 场景 DSL + run.py（MD/JSON 双报告）
 ├── Dockerfile / .dockerignore # 容器沙箱（资源受限、日志可监控，见"沙箱双轨"）
 ├── docs/
@@ -72,14 +72,14 @@ weiyan-bank-agent/
 │   ├── 技术文档.md            # 架构图 + 核心算法 + 安全设计（作品资料2）
 │   ├── 安全自评报告.md        # 权限分级实现 + 风险清单 + 实测加固实录（作品资料5）
 │   └── reports/eval-report.md # 自动评测报告（Mock 25/25，真实模型 24/24）
-├── tests/                     # pytest（70 项）
+├── tests/                     # pytest（85 项）
 └── requirements.txt
 ```
 
 ## 测试与评测
 
 ```bash
-python -m pytest -q            # 73 项单元测试（权限/服务/编排/熔断/幻觉兜底）
+python -m pytest -q            # 85 项单元测试（权限/服务/编排/熔断/幻觉兜底/渠道/数据一致性）
 python -m harness.run          # 自动评测（MockLLM，确定性 25/25）
 python -m harness.run --real   # 自动评测（真实 DeepSeek，24/24）
 ```
@@ -102,7 +102,7 @@ docker logs -f weiyan-agent    # 审计/错误走 stdout，可监控
 - **LLM**：DeepSeek 默认（OpenAI 兼容 `https://api.deepseek.com/v1`），Provider 可插拔；无 Key 自动回退确定性 MockLLM
 - **编排**：自研轻量层（<1000 行，不用 LangChain/LangGraph）——意图→DAG→权限门→执行→审计，安全全可控
 - **数据**：内存 Store + Repository 抽象（生产可换 SQLite/MySQL）
-- **前端**：纯 HTML/JS + ECharts CDN，`file://` 直接打开
+- **前端**：手机银行风格（APP 形态，四 Tab：对话/账单/卡片/审计），纯 HTML/JS + ECharts CDN，`file://` 直接打开
 - **沙箱**：不执行 LLM 生成的任意代码（工具白名单=逻辑沙箱）+ 进程级兜底 `security/sandbox.py`
 
 ## 安全机制（全部落地并有测试）
