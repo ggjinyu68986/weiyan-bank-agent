@@ -146,6 +146,27 @@ body {
 .confirm-card .btns { display: flex; gap: 8px; margin-top: 10px; }
 .confirm-card .btns .btn.ok { background: var(--gold); border-color: var(--gold); color: #fff; }
 
+/* AA 收款进度卡片（发起/入账/查询后自动渲染） */
+.aa-card {
+  align-self: flex-start; max-width: 88%; min-width: 240px;
+  background: var(--card); border: 1.5px solid var(--line);
+  border-radius: 13px; padding: 12px 14px; font-size: 12.5px;
+  animation: fadeIn .22s ease;
+}
+.aa-card .aa-head { font-weight: 700; color: var(--text); font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+.aa-card .aa-count { color: var(--blue); font-weight: 800; font-size: 15px; }
+.aa-card .aa-settled { color: #0E9F6E; }
+.aa-card .aa-bar { height: 7px; background: #EEF2F7; border-radius: 5px; margin: 9px 0 4px; overflow: hidden; }
+.aa-card .aa-bar-fill { height: 100%; background: linear-gradient(90deg, var(--blue), #0E9F6E); border-radius: 5px; transition: width .35s ease; }
+.aa-card .aa-sub { color: var(--muted); font-size: 11px; margin-bottom: 7px; }
+.aa-card .aa-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px dashed var(--line); }
+.aa-card .aa-name { flex: 1; color: #1F2937; }
+.aa-card .aa-amt { color: #374151; font-variant-numeric: tabular-nums; }
+.aa-card .aa-badge { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; }
+.aa-card .aa-badge.ok { background: #E7F6EF; color: #0E9F6E; }
+.aa-card .aa-badge.due { background: #FFF3E0; color: #C2610C; }
+.aa-card .aa-row.done .aa-name { color: var(--muted); text-decoration: line-through; }
+
 /* 打字指示 */
 .typing { align-self: flex-start; display: flex; gap: 4px; padding: 11px 15px; background: var(--card); border: 1px solid var(--line); border-radius: 13px; }
 .typing i { width: 6px; height: 6px; border-radius: 50%; background: #94A3B8; animation: blink 1s infinite; }

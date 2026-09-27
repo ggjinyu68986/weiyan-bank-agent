@@ -127,6 +127,7 @@ class AgentReply:
     tool: str = ""
     params: dict = field(default_factory=dict)
     pending_id: str = ""
+    data: dict = field(default_factory=dict)  # 工具返回的结构化数据（前端可视化卡片，如 AA 进度）
 
 
 @dataclass
@@ -401,13 +402,13 @@ class AgentOrchestrator:
         r = ex(self.service, params)
         self._log(user_msg, tool, params, "", "execute", r.execution_id, r.message)
         if not r.ok:
-            out = AgentReply("deny", f"执行失败：{r.message}", execution_id=r.execution_id, tool=tool, params=params)
+            out = AgentReply("deny", f"执行失败：{r.message}", execution_id=r.execution_id, tool=tool, params=params, data=r.data)
             self.history.append({"role": "assistant", "content": out.message})
             return out
         # 转账成功 → 计入今日累计（日限额升级的依据）
         if tool == "transfer":
             self.user_state["today_transfer_cents"] += params.get("amount_cents", 0)
-        out = AgentReply("auto", _summarize(tool, r), execution_id=r.execution_id, tool=tool, params=params)
+        out = AgentReply("auto", _summarize(tool, r), execution_id=r.execution_id, tool=tool, params=params, data=r.data)
         self.history.append({"role": "assistant", "content": out.message})
         return out
 

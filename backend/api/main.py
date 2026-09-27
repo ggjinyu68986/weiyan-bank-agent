@@ -134,6 +134,7 @@ def _reply(r: AgentReply) -> dict:
         "tool": r.tool,
         "params": r.params,
         "pending_id": r.pending_id,
+        "data": r.data,  # 工具返回的结构化数据（前端可视化：AA 收款进度卡片等）
     }
 
 

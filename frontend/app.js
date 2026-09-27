@@ -12,6 +12,10 @@
     query_balance: "余额查询",
     list_transactions: "交易查询",
     transfer: "转账",
+    schedule_transfer: "定时转账",
+    split_bill: "AA拆分收款",
+    split_bill_status: "AA收款进度",
+    pay_split_bill: "AA收款入账",
     list_subscriptions: "订阅查询",
     analyze_bills: "账单分析",
     buy_wealth: "理财申购",
@@ -116,6 +120,14 @@
       var payee = contactMap[p.to_account_id];
       desc.push("收款" + (payee ? "人：<b>" + payee + "</b>（账户 " + p.to_account_id + "）" : "账户：" + p.to_account_id));
       if (p.note) desc.push("备注：" + p.note);
+    } else if (reply.tool === "split_bill") {
+      desc.push("总额：<b>" + fmtYuan(p.total_cents) + "</b>");
+      desc.push("人数：" + p.people_count + " 人（人均 " + fmtNum(p.total_cents / p.people_count) + " 元）");
+      desc.push("事由：" + (p.title || "AA收款") + " · 向其余参与者收款");
+    } else if (reply.tool === "pay_split_bill") {
+      var payerNm = contactMap[p.payer_account_id] || p.payer_account_id;
+      desc.push("收款人：<b>" + payerNm + "</b>（账户 " + p.payer_account_id + "）");
+      desc.push("动作：从收款人账户扣 AA 分摊款 → 入账发起人（金额见收款单）");
     } else {
       desc.push("操作：" + (TOOL_NAMES[reply.tool] || reply.tool));
       desc.push("参数：" + JSON.stringify(p));
@@ -194,6 +206,28 @@
   function showLockBanner() { document.getElementById("lockBanner").classList.remove("hidden"); }
   function hideLockBanner() { document.getElementById("lockBanner").classList.add("hidden"); }
 
+  /* AA 收款进度卡片（发起/入账/查询后自动渲染，进度条 + 收款人名单） */
+  function renderAABill(d) {
+    if (!d || !Array.isArray(d.payers)) return "";
+    var total = d.payer_count != null ? d.payer_count : d.payers.length;
+    var paid = d.paid_count != null ? d.paid_count : d.payers.filter(function (p) { return p.paid; }).length;
+    var pct = total ? Math.round((paid / total) * 100) : 0;
+    var rows = d.payers.map(function (p) {
+      var nm = contactMap[p.account_id] || p.account_id;
+      return '<div class="aa-row' + (p.paid ? " done" : "") + '">' +
+        '<span class="aa-name">' + nm + "</span>" +
+        '<span class="aa-amt">' + fmtNum(p.amount_cents) + " 元</span>" +
+        '<span class="aa-badge ' + (p.paid ? "ok" : "due") + '">' + (p.paid ? "✓ 已收" : "待收") + "</span></div>";
+    }).join("");
+    var settled = total && paid === total;
+    return '<div class="aa-card">' +
+      '<div class="aa-head">' + d.title + (settled ? " · <span class='aa-settled'>已收齐 ✓</span>" : " · AA 收款进度") +
+      ' <span class="aa-count">' + paid + "/" + total + "</span></div>" +
+      '<div class="aa-bar"><div class="aa-bar-fill" style="width:' + pct + '%"></div></div>' +
+      '<div class="aa-sub">每人 ' + fmtNum(d.per_person_cents) + " 元 · 已收 " + fmtNum(paid * d.per_person_cents) + " 元</div>" +
+      rows + "</div>";
+  }
+
   function renderReply(res) {
     if (res.requires === "chat") { addAssistant(res.message); return; }
     if (res.requires === "confirm") { addConfirmCard(res); return; }
@@ -209,6 +243,14 @@
     if (res.tool === "apply_virtual_card" || res.tool === "freeze_card" || res.tool === "unfreeze_card" ||
         res.tool === "report_card_loss" || res.tool === "unlock_card" || res.tool === "adjust_card_limit") {
       loadCards(); // 卡片页保持同步
+    }
+    if (res.requires === "auto" &&
+        (res.tool === "split_bill" || res.tool === "pay_split_bill" || res.tool === "split_bill_status") &&
+        res.data && res.data.payers) {
+      // AA 收款进度卡片（进度条 + 收款人名单，实时反映已收/待收）
+      var holder = document.createElement("div");
+      holder.innerHTML = renderAABill(res.data);
+      if (holder.firstChild) { chat.appendChild(holder.firstChild); scrollChat(); }
     }
     if (res.execution_id) refreshAsset();
   }

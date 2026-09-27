@@ -277,7 +277,10 @@ class BankService:
                 "per_person_cents": per,
                 "first_person_extra_cents": rem,
                 "breakdown": breakdown,
-                "payers": [{"account_id": p.account_id, "amount_cents": p.amount_cents} for p in payers],
+                "paid_count": 0,
+                "payer_count": len(payers),
+                "payers": [{"account_id": p.account_id, "amount_cents": p.amount_cents, "paid": p.paid}
+                           for p in payers],
             },
             message="AA 收款单已生成",
         )
@@ -301,11 +304,14 @@ class BankService:
                 "bill_id": bill.id,
                 "title": bill.title,
                 "status": bill.status,
+                "total_cents": bill.total_cents,
                 "per_person_cents": bill.per_person_cents,
                 "paid_count": len(paid),
                 "payer_count": len(bill.payers),
                 "paid": [{"account_id": p.account_id, "amount_cents": p.amount_cents} for p in paid],
                 "due": [{"account_id": p.account_id, "amount_cents": p.amount_cents} for p in due],
+                "payers": [{"account_id": p.account_id, "amount_cents": p.amount_cents, "paid": p.paid}
+                           for p in bill.payers],
             },
             message="AA 收款进度查询完成",
         )
@@ -352,6 +358,10 @@ class BankService:
                 "paid_count": paid_count,
                 "payer_count": len(bill.payers),
                 "settled": done,
+                "total_cents": bill.total_cents,
+                "per_person_cents": bill.per_person_cents,
+                "payers": [{"account_id": p.account_id, "amount_cents": p.amount_cents, "paid": p.paid}
+                           for p in bill.payers],
             },
             message=f"已收款：{payer.account_id} {payer.amount_cents / 100:.2f} 元"
                     + (f"，{paid_count}/{len(bill.payers)} 人已付" if not done else f"，已收齐结清（{paid_count}/{len(bill.payers)}）"),
