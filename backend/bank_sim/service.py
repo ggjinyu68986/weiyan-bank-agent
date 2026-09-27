@@ -327,7 +327,8 @@ class BankService:
 
     # ========== 场景5：订阅代扣 ==========
     def list_subscriptions(self, user_id: int) -> OpResult:
-        subs = [s for s in self.store.subscriptions.values() if s.user_id == user_id]
+        # 只返回有效订阅（已取消的排除，保证"取消→复查"状态一致）
+        subs = [s for s in self.store.subscriptions.values() if s.user_id == user_id and s.status != "cancelled"]
         return OpResult.success(
             {"count": len(subs), "subscriptions": [s.model_dump(mode="json") for s in subs]}
         )

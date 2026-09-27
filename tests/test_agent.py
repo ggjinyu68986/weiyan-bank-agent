@@ -130,6 +130,18 @@ def test_cancel_subscription_via_agent():
     assert "已取消订阅" in out.message
 
 
+def test_cancel_then_requery_shrinks():
+    """取消订阅后复查列表：已取消项必须消失（状态一致性，真机演示暴露的 bug）。"""
+    o = make()
+    r1 = o.handle("取消订阅")
+    o.confirm(r1.pending_id)
+    # 复查：从 3 项变为 2 项，且不再包含默认订阅
+    r2 = o.handle("我有哪些订阅")
+    assert r2.requires == "auto"
+    assert "共 2 项" in r2.message
+    assert "某某视频" not in r2.message
+
+
 def test_card_loss_via_agent_mfa():
     """卡片挂失（红级强验证）。"""
     o = make()
