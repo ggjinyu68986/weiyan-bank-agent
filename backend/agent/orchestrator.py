@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -175,7 +176,12 @@ class AgentOrchestrator:
         reply = self.llm.complete(messages, tools=self.tools)
 
         if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
-            out = AgentReply("chat", reply.text or "（无可用操作）")
+            text = reply.text or "（无可用操作）"
+            # 幻觉兜底（第二道防线）：未调工具却输出金额/执行编号/账户号 → 疑似编造，拦截并计入可疑行为
+            if _looks_fabricated(text):
+                msg = "系统拦截：该回复疑似编造账户信息（未调用任何查询工具）。请重新描述需求，我将通过工具核实。"
+                return self._record_suspicious(user_msg, "", {}, msg, st)
+            out = AgentReply("chat", text)
             self._log(user_msg, "", {}, "", "chat", "", out.message)
             self.history.append({"role": "assistant", "content": out.message})
             return out
@@ -279,8 +285,9 @@ class AgentOrchestrator:
         return self._execute(p["tool"], p["params"], "(强验证通过后执行)", "多因子验证通过")
 
     def _record_suspicious(self, user_msg, tool, params, reason, st) -> AgentReply:
-        """注入/越权试探累计：达到阈值触发安全锁定。"""
+        """注入/编造试探累计：每次落审计，达到阈值触发安全锁定。"""
         st["suspicious_count"] += 1
+        self._log(user_msg, tool, params, "red", "suspicious", "", reason)
         out = AgentReply("deny", reason, tool=tool, params=params)
         if st["suspicious_count"] >= SUSPICIOUS_LIMIT:
             st["locked"] = True
@@ -329,6 +336,23 @@ class AgentOrchestrator:
         self.audit.append(
             AuditRecord(datetime.now(), user_msg, tool, dict(params), risk, action, eid, message)
         )
+
+
+def _looks_fabricated(text: str) -> bool:
+    """幻觉兜底判定：纯文字回复中出现"金额/执行编号/账户号"且未调用任何工具 → 疑似编造。
+
+    命中任一样式即拦截（真实查询结果的文案必须走工具返回，不允许模型直接文字输出）：
+    - 金额：如 58200.00 元、12,345.67 元
+    - 执行编号：如 执行编号 f6668297
+    - 账户号：如 6222-0001
+    """
+    if not text:
+        return False
+    return bool(
+        re.search(r"执行编号\s*[0-9a-fA-F]{6,}", text)
+        or re.search(r"\d{1,3}(,\d{3})*\.\d{2}\s*元", text)
+        or re.search(r"账户\s*6222-\d{4}", text)
+    )
 
 
 def _summarize(tool: str, r) -> str:

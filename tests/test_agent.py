@@ -1,11 +1,11 @@
 """Agent 编排器 v0 单元测试（MockLLM 确定性驱动）。
 
-覆盖：绿自动执行 / 黄确认后执行 / 红强验证 / 注入拒绝 / 纯对话 / 审计留痕。
+覆盖：绿自动执行 / 黄确认后执行 / 红强验证 / 注入拒绝 / 纯对话 / 审计留痕 / 异常熔断 / 幻觉兜底。
 运行：pytest tests/test_agent.py -q
 """
 from __future__ import annotations
 
-from backend.agent.llm import MockLLM
+from backend.agent.llm import LLMReply, MockLLM
 from backend.agent.orchestrator import AgentOrchestrator
 
 
@@ -276,3 +276,46 @@ def test_reset_clears_lock():
     o.reset()
     assert o.status()["locked"] is False
     assert o.handle("帮我看看余额").requires == "auto"
+
+
+# ========== 幻觉兜底：纯文本回复编造账户信息 → 拦截 ==========
+class FabricatingLLM(MockLLM):
+    """模拟模型未调工具、直接文字编造余额/执行编号（用户实测遇到的场景）。"""
+
+    def complete(self, messages, tools=None):
+        return LLMReply(text="当前余额：58200.00 元（执行编号 f6668297）")
+
+
+class FabricatingTableLLM(MockLLM):
+    """模拟模型编造流水表格（未调 list_transactions）。"""
+
+    def complete(self, messages, tools=None):
+        return LLMReply(text="最近流水：\n| 时间 | 金额 |\n| 2026-05-12 | 3200.00 元 |")
+
+
+def test_fabricated_balance_chat_blocked():
+    """模型直接文字输出金额+执行编号（未调工具）→ 系统拦截，计入可疑行为。"""
+    o = AgentOrchestrator(llm=FabricatingLLM())
+    r = o.handle("我的余额是多少")
+    assert r.requires == "deny"
+    assert "疑似编造" in r.message
+    assert o.status()["suspicious_count"] == 1
+    # 审计留有拦截记录
+    assert any(rec.message and "疑似编造" in rec.message for rec in o.audit)
+
+
+def test_fabricated_table_chat_blocked():
+    o = AgentOrchestrator(llm=FabricatingTableLLM())
+    r = o.handle("最近流水")
+    assert r.requires == "deny"
+    assert "疑似编造" in r.message
+
+
+def test_fabricated_chat_thrice_locks():
+    """连续 3 次编造回复 → 与注入试探共用熔断计数，触发安全锁定。"""
+    o = AgentOrchestrator(llm=FabricatingLLM())
+    for _ in range(3):
+        o.handle("我的余额是多少")
+    assert o.status()["locked"] is True
+    # 锁定后查询也被拒
+    assert o.handle("帮我看看余额").requires == "deny"

@@ -44,16 +44,23 @@ def run_case(case: dict, real: bool = False) -> dict:
         steps.append(r.requires)
         guard += 1
 
-    # 异常熔断用例：三个不同红级操作各输错一次 → 触发锁定 → 再发消息应被拒绝
+    # 异常熔断用例：多个红级操作各输错一次 → 累计 3 次失败触发锁定 → 再发消息应被拒绝
+    # （真实模型可能对某次输入只回话不调工具，故轮询尝试直至累计 3 次错码）
     steps_lockout: list[str] = []
     lockout_msg = ""
     if case.get("lockout_inputs"):
         o.reset()  # 独立会话保证计数器干净
-        for inp in case["lockout_inputs"]:
-            rr = o.handle(inp)
-            steps_lockout.append(rr.requires)
-            bad = o.authorize(rr.pending_id, mfa_code="000000")
-            steps_lockout.append(bad.requires)
+        guard = 0
+        while o.status()["mfa_failures"] < 3 and guard < 2:
+            for inp in case["lockout_inputs"]:
+                rr = o.handle(inp)
+                steps_lockout.append(rr.requires)
+                if rr.requires in ("confirm", "mfa"):
+                    bad = o.authorize(rr.pending_id, mfa_code="000000")
+                    steps_lockout.append(bad.requires)
+                if o.status()["mfa_failures"] >= 3:
+                    break
+            guard += 1
         after = o.handle("帮我看看余额")  # 锁定后连查询也被拒
         steps_lockout.append(after.requires)
         lockout_msg = after.message
