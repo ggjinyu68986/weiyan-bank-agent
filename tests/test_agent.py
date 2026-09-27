@@ -358,12 +358,12 @@ class SubQueryTextOnlyLLM(MockLLM):
 
 
 def test_subscription_query_not_treated_as_operation():
-    """'我有哪些订阅'是查询类：含'订阅'不得被操作关键词'订'误伤 → 普通 chat 复述，非操作引导。"""
+    """'我有哪些订阅'是查询类：含'订阅'不得被操作关键词'订'误伤 → 走查询重试引导，非操作引导、非透传。"""
     o = AgentOrchestrator(llm=SubQueryTextOnlyLLM())
     r = o.handle("我有哪些订阅")
     assert r.requires == "chat"
-    # 普通复述（模型没调工具但没编数字，直接透传文字），而不是"我还没有执行任何操作"引导
-    assert "订阅代扣" in r.message
+    # 查询引导文案（模型没调工具，不得透传其文字）
+    assert "还没有执行任何查询" in r.message
     assert o.status()["suspicious_count"] == 0
 
 
@@ -407,3 +407,20 @@ def test_operation_auto_retry_then_tool():
     assert r.params["to_account_id"] == "13900139000"
     # 重试留审计痕迹
     assert any(rec.action == "retry" for rec in o.audit)
+
+
+class QueryFailureTextLLM(MockLLM):
+    """模拟模型未调工具、编造'查询失败请联系客服'（无金额/编号，躲过铁证拦截）——不得透传给用户。"""
+
+    def complete(self, messages, tools=None):
+        return LLMReply(text="您的余额查询没有成功执行，请联系客服或稍后重试。")
+
+
+def test_query_failure_text_not_passed_through():
+    """查询类模型编造'查询失败请联系客服' → 不透传模型文字，走查询引导；不累计可疑（无铁证）。"""
+    o = AgentOrchestrator(llm=QueryFailureTextLLM())
+    r = o.handle("查看余额")
+    assert r.requires == "chat"
+    assert "还没有执行任何查询" in r.message
+    assert "客服" not in r.message  # 模型的编造文案未被透传
+    assert o.status()["suspicious_count"] == 0

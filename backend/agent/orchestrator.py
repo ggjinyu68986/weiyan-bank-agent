@@ -181,24 +181,33 @@ class AgentOrchestrator:
             if _looks_fabricated(user_msg, text):
                 msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
                 return self._record_suspicious(user_msg, "", {}, msg, st)
+            is_operation = any(k in user_msg for k in OPERATION_HINTS)
+            is_query = any(k in user_msg for k in QUERY_HINTS)
             # 操作类请求但模型未调工具（如转账/AA只文字复述）→ 系统自动重试一次（把"必须调工具"再喂给模型），
             # 仍失败才引导用户重说（提升真实模型成功率，杜绝"复述即假装完成"）
-            if any(k in user_msg for k in OPERATION_HINTS):
+            if is_operation or is_query:
                 self.history.append({
                     "role": "assistant",
-                    "content": "（系统提示）你请求的业务必须调用工具完成（transfer/split_bill/cancel_subscription 等），"
-                               "请立即调用对应工具，不要以文字复述金额、不要仅回复确认。",
+                    "content": "（系统提示）你请求的业务必须调用工具完成（查询类如 query_balance/list_subscriptions，"
+                               "操作类如 transfer/split_bill/cancel_subscription 等），请立即调用对应工具，"
+                               "不要以文字复述金额、不要仅回复确认、不要编造查询结果。",
                 })
-                self._log(user_msg, "", {}, "", "retry", "", "操作类请求未调工具，系统自动重试一次")
+                self._log(user_msg, "", {}, "", "retry", "", "查询/操作类请求未调工具，系统自动重试一次")
                 retry = self.llm.complete(
                     [{"role": "system", "content": SYSTEM_PROMPT}, *self.history], tools=self.tools
                 )
                 if retry.tool_calls or retry.plan:
                     return self._route_tool(retry, user_msg, st)
-                out = AgentReply(
-                    "chat",
-                    "我还没有执行任何操作。请允许我通过工具为你办理——你可以再对我说一次，我会先展示操作详情待你确认。",
-                )
+                if is_operation:
+                    out = AgentReply(
+                        "chat",
+                        "我还没有执行任何操作。请允许我通过工具为你办理——你可以再对我说一次，我会先展示操作详情待你确认。",
+                    )
+                else:
+                    out = AgentReply(
+                        "chat",
+                        "我还没有执行任何查询。请允许我通过工具为你核实——你可以再对我说一次，我会调用查询工具获取真实数据。",
+                    )
                 self._log(user_msg, "", {}, "", "chat", "", out.message)
                 self.history.append({"role": "assistant", "content": out.message})
                 return out
@@ -365,7 +374,8 @@ class AgentOrchestrator:
 
 
 # 查询类 / 操作类提示词（用于区分"编造查询结果"与"操作类文字复述"）
-QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对比", "推荐", "明细", "查询", "查", "看看", "还剩", "多少钱", "多少")
+QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对比", "推荐", "明细", "查询", "查", "看看",
+               "还剩", "多少钱", "多少", "订阅", "代扣", "理财", "持仓")
 # 注意：整词匹配优先用长词（"退订"而非"订"，避免"订阅"被误判为操作类）
 OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "锁定", "申请", "还款")
 
