@@ -349,7 +349,8 @@ class AgentOrchestrator:
 
 # 查询类 / 操作类提示词（用于区分"编造查询结果"与"操作类文字复述"）
 QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对比", "推荐", "明细", "查询", "查", "看看", "还剩", "多少钱", "多少")
-OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "订", "锁定", "申请", "还款")
+# 注意：整词匹配优先用长词（"退订"而非"订"，避免"订阅"被误判为操作类）
+OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "锁定", "申请", "还款")
 
 
 def _looks_fabricated(user_msg: str, text: str) -> bool:
@@ -421,7 +422,7 @@ def _summarize(tool: str, r) -> str:
         ) or "暂无持仓"
         return f"在售 {len(d['products'])} 款产品：{prods}；当前持仓：{holdings}"
     if tool in ("buy_wealth", "redeem_wealth"):
-        return f"{r.message}：{d['product']} {d['amount_cents'] / 100:.2f} 元"
+        return f"{r.message} {d['amount_cents'] / 100:.2f} 元"
     if tool == "apply_virtual_card":
         return f"虚拟卡申请成功：{d['card_id']}（日限额 {d['daily_limit_cents'] / 100:.2f} 元）"
     if tool == "adjust_card_limit":

@@ -336,3 +336,36 @@ def test_operation_text_reply_not_fabricated():
     assert "工具" in r.message and "确认" in r.message
     assert o.status()["suspicious_count"] == 0  # 不算可疑行为
     assert not any(rec.message and "疑似编造" in rec.message for rec in o.audit)
+
+
+class SubQueryTextOnlyLLM(MockLLM):
+    """模拟模型对查询类请求（订阅）未调工具、只文字回复（无金额）——不应被当操作类引导。"""
+
+    def complete(self, messages, tools=None):
+        return LLMReply(text="你有一些订阅代扣")
+
+
+def test_subscription_query_not_treated_as_operation():
+    """'我有哪些订阅'是查询类：含'订阅'不得被操作关键词'订'误伤 → 普通 chat 复述，非操作引导。"""
+    o = AgentOrchestrator(llm=SubQueryTextOnlyLLM())
+    r = o.handle("我有哪些订阅")
+    assert r.requires == "chat"
+    # 普通复述（模型没调工具但没编数字，直接透传文字），而不是"我还没有执行任何操作"引导
+    assert "订阅代扣" in r.message
+    assert o.status()["suspicious_count"] == 0
+
+
+class BalanceTextOnlyLLM(MockLLM):
+    """模拟模型对语序变体'我余额看看'未调工具直接编造余额 → 查询类应拦截。"""
+
+    def complete(self, messages, tools=None):
+        return LLMReply(text="你的余额是 58200.00 元")
+
+
+def test_balance_variant_fabricated_blocked():
+    """'我余额看看'（查询类，语序变体）模型文字编造金额 → 仍应拦截为编造。"""
+    o = AgentOrchestrator(llm=BalanceTextOnlyLLM())
+    r = o.handle("我余额看看")
+    assert r.requires == "deny"
+    assert "疑似编造" in r.message
+    assert o.status()["suspicious_count"] == 1
