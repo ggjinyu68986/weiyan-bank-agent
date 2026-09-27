@@ -211,6 +211,7 @@
 
   /* ========== 账单 Tab ========== */
   var billMonth = null; // null = 当前月（后端默认）
+  var billChart = null; // ECharts 实例复用（切换月份/刷新时先 dispose 再重建）
   function loadBills() {
     var q = billMonth ? "?month=" + billMonth : "";
     fetch(API + "/agent/bills" + q)
@@ -237,14 +238,23 @@
         }
 
         if (window.echarts) {
-          var chart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
-          chart.setOption({
+          // 实例复用：切换月份/刷新时先 dispose 再重建，避免重复 init 与隐藏容器尺寸问题
+          if (billChart) { billChart.dispose(); billChart = null; }
+          billChart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
+          billChart.setOption({
             tooltip: { trigger: "item", formatter: "{b}: {c} 元 ({d}%)" },
-            legend: { bottom: 0, textStyle: { fontSize: 10, color: "#6B7280" } },
-            color: ["#1A4B8C", "#C9A227", "#0E9F6E", "#C2610C", "#7C3AED", "#0EA5E9"],
+            color: ["#1A4B8C", "#C9A227", "#0E9F6E", "#C2610C", "#64748B", "#0EA5E9"],
+            // 环形图居中放大、中心显示总支出（银行 App 账单页惯例）；不设图例避免手机端图例换行挤压
+            graphic: [
+              { type: "text", left: "center", top: "33%",
+                style: { text: "总支出", fill: "#6B7280", fontSize: 12, textAlign: "center" } },
+              { type: "text", left: "center", top: "40%",
+                style: { text: fmtNum(Math.abs(d.total_expense_cents)) + " 元",
+                         fill: "#0B2D5C", fontWeight: 700, fontSize: 18, textAlign: "center" } },
+            ],
             series: [{
-              type: "pie", radius: ["46%", "70%"], center: ["50%", "42%"],
-              itemStyle: { borderRadius: 5, borderColor: "#fff", borderWidth: 1.5 },
+              type: "pie", radius: ["40%", "64%"], center: ["50%", "45%"],
+              itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
               label: { show: false },
               data: cats.map(function (c) { return { name: c.category, value: Math.abs(c.amount_cents) / 100 }; }),
             }],
