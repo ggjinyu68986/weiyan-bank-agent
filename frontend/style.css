@@ -249,12 +249,19 @@ body {
 }
 .panel-title { font-size: 13px; font-weight: 700; color: var(--blue-deep); margin-bottom: 8px; }
 .bill-chart { width: 100%; height: 210px; }
+.insight {
+  background: var(--blue-soft); color: var(--blue-deep);
+  font-size: 11.5px; padding: 7px 10px; border-radius: 9px; margin-bottom: 8px; line-height: 1.5;
+}
+.insight b { color: var(--blue); }
 .cat-list { margin-top: 8px; font-size: 12px; }
-.cat-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.cat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .cat-row:last-child { border-bottom: none; }
 .cat-row .c-name { color: #374151; display: flex; align-items: center; }
+.cat-row .idx { color: var(--muted); font-weight: 600; margin-right: 6px; font-variant-numeric: tabular-nums; }
 .cat-row .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; flex-shrink: 0; }
-.cat-row .c-amt { font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; letter-spacing: .3px; }
+.cat-row .c-pct { color: var(--blue); font-weight: 700; margin-left: auto; font-variant-numeric: tabular-nums; }
+.cat-row .c-amt { font-weight: 600; color: #1F2937; font-variant-numeric: tabular-nums; letter-spacing: .3px; }
 .anomaly-list { font-size: 12px; }
 .anomaly-empty { color: var(--muted); padding: 6px 0; }
 .anomaly-head {

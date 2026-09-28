@@ -377,11 +377,20 @@
         document.getElementById("billExpense").textContent = fmtNum(Math.abs(d.total_expense_cents)) + " 元";
 
         var cats = d.by_category.filter(function (c) { return c.amount_cents < 0; });
+        var totalExp = Math.abs(d.total_expense_cents);
+        function pct(v) { return totalExp ? Math.round(Math.abs(v) / totalExp * 100) + "%" : ""; }
+        // 支付宝式明细：序号 + 色点 + 类别 + 占比 + 金额(笔数)
         document.getElementById("billCats").innerHTML = cats.map(function (c, i) {
-          return '<div class="cat-row"><span class="c-name">' +
+          return '<div class="cat-row"><span class="c-name"><b class="idx">' + (i + 1) + ".</b>" +
             '<i class="dot" style="background:' + CAT_COLORS[i % CAT_COLORS.length] + '"></i>' + c.category + "</span>" +
-            '<span class="c-amt">' + fmtNum(Math.abs(c.amount_cents)) + " 元 · " + c.count + " 笔</span></div>";
+            '<span class="c-pct">' + pct(c.amount_cents) + "</span>" +
+            '<span class="c-amt">' + fmtNum(Math.abs(c.amount_cents)) + " 元(" + c.count + "笔)</span></div>";
         }).join("");
+        // 顶部提示条：占比最高类别（支付宝式智能小结）
+        var insight = document.getElementById("billInsight");
+        if (insight && cats.length) {
+          insight.innerHTML = "🏆 <b>" + cats[0].category + "</b> 分类消费占比最高（" + pct(cats[0].amount_cents) + "）";
+        }
 
         var box = document.getElementById("billAnomalies");
         if (!d.anomaly_count) {
@@ -410,20 +419,26 @@
               itemStyle: i === maxIdx
                 ? { borderRadius: 6, borderColor: "#0B2D5C", borderWidth: 3 }
                 : { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
-              label: { show: false },
+              // 支付宝式：前 3 大类别扇区外侧 leader-line 标注「类别 占比%」，其余看列表
+              label: i < 3
+                ? { show: true, formatter: "{b} {d}%", color: "#0B2D5C", fontSize: 10.5, fontWeight: 600, lineHeight: 14 }
+                : { show: false },
+              labelLine: i < 3
+                ? { show: true, length: 9, length2: 7, lineStyle: { color: "#94A3B8", width: 1 } }
+                : { show: false },
             };
           });
           billChart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
           billChart.setOption({
             tooltip: { trigger: "item", formatter: "{b}: {c} 元 ({d}%)" },
             color: CAT_COLORS,
-            // 环形图居中放大、中心显示总支出（银行 App 账单页惯例）；不设图例避免手机端图例换行挤压
+            // 支付宝式中心：显示占比最高类别 + 百分比（顶部已有支出总额，中心不重复）
             graphic: [
-              { type: "text", left: "center", top: "33%",
-                style: { text: "总支出", fill: "#6B7280", fontSize: 12, textAlign: "center" } },
-              { type: "text", left: "center", top: "40%",
-                style: { text: fmtNum(Math.abs(d.total_expense_cents)) + " 元",
-                         fill: "#0B2D5C", fontWeight: 700, fontSize: 18, textAlign: "center" } },
+              { type: "text", left: "center", top: "30%",
+                style: { text: cats[maxIdx].category, fill: "#6B7280", fontSize: 12, textAlign: "center" } },
+              { type: "text", left: "center", top: "39%",
+                style: { text: pct(cats[maxIdx].amount_cents),
+                         fill: "#0B2D5C", fontWeight: 800, fontSize: 20, textAlign: "center" } },
             ],
             series: [{
               type: "pie", radius: ["40%", "64%"], center: ["50%", "45%"],
