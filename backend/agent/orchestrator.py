@@ -255,6 +255,14 @@ class AgentOrchestrator:
                 if fab:
                     msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
                     return self._record_suspicious(user_msg, "", {}, msg, st, jev)
+                fo = _query_failover(user_msg, self.account_id, self.user_id)
+                if fo:
+                    tool, params = fo
+                    # 规则兜底路由：模型连续未调工具时，命中明确查询意图关键词直接执行真实查询
+                    # （绿级权限门 + 全量审计；参数锁定当前账户，结果全部来自工具，不存在编造）
+                    self._log(user_msg, tool, params, "", "failover", "",
+                              f"模型未调用工具，规则兜底路由命中「{tool}」，直接执行真实查询")
+                    return self._route_tool(_FO_REPLY(tool, params), user_msg, st)
                 if is_operation:
                     out = AgentReply(
                         "chat",
@@ -615,3 +623,49 @@ def _summarize(tool: str, r) -> str:
     if tool in ("freeze_card", "unfreeze_card"):
         return f"{r.message}：{d['card_id']}（状态 {d['status']}）"
     return r.message
+
+
+# ---------- 绿级查询规则兜底路由（系统防御层） ----------
+class _FO_REPLY:
+    """规则兜底路由的伪 LLM 回复：复用 _route_tool 完整链路（权限门 + 审计 + 执行）。
+
+    只承载绿级只读查询工具的参数（账户锁定为当前用户），不存在绕过权限的可能。
+    """
+
+    def __init__(self, tool: str, params: dict):
+        self.plan = None
+        self.tool_calls = [{"name": tool, "arguments": params}]
+        self.text = ""
+
+
+_QUERY_FAILOVER: list[tuple[tuple[str, ...], str, object]] = [
+    # (关键词元组, 工具名, 参数构造器(user_msg, account_id, user_id))
+    (("异常交易", "异常消费", "可疑交易", "风控"), "analyze_bills",
+     lambda u, acc, uid: {"account_id": acc}),
+    (("账单", "消费分类", "对账单", "支出分析"), "analyze_bills",
+     lambda u, acc, uid: {"account_id": acc}),
+    (("年度", "年账单", "年度报告"), "annual_report",
+     lambda u, acc, uid: {"account_id": acc}),
+    (("余额",), "query_balance",
+     lambda u, acc, uid: {"account_id": acc}),
+    (("流水", "交易记录", "交易明细", "明细"), "list_transactions",
+     lambda u, acc, uid: {"account_id": acc, "limit": 20}),
+    (("订阅", "代扣", "续费"), "list_subscriptions",
+     lambda u, acc, uid: {"user_id": uid}),
+    (("理财", "在售", "持仓", "收益"), "wealth_products",
+     lambda u, acc, uid: {"user_id": uid}),
+    (("待付", "AA分摊", "收款进度"), "list_pending_splits",
+     lambda u, acc, uid: {"account_id": acc}),
+]
+
+
+def _query_failover(user_msg: str, account_id: str, user_id: int):
+    """绿级查询兜底：模型连续未调工具时，命中明确查询意图关键词即直接执行真实查询。
+
+    安全边界：只覆盖只读查询工具；操作类（转账/申购/挂失等）绝不进入此路由——
+    它们即使命中关键词也要走黄级确认/红级强验证，此函数不返回任何操作类工具。
+    """
+    for keys, tool, build in _QUERY_FAILOVER:
+        if any(k in user_msg for k in keys):
+            return tool, build(user_msg, account_id, user_id)
+    return None

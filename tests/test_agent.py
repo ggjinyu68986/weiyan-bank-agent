@@ -462,11 +462,11 @@ def test_query_fabricated_bill_retries_then_tool():
 
 
 def test_fabricated_table_chat_retries():
-    """流水表格纯金额（无铁证）→ 不拦截，自动重试后仍无工具 → 查询引导，用户无感。"""
+    """流水表格纯金额（无铁证）→ 不拦截，自动重试后仍无工具 → 规则兜底执行真实流水查询，用户无感、不累计可疑。"""
     o = AgentOrchestrator(llm=FabricatingTableLLM())
     r = o.handle("最近流水")
-    assert r.requires == "chat"
-    assert "还没有执行任何查询" in r.message
+    assert r.requires == "auto"
+    assert r.tool == "list_transactions"
     assert o.status()["suspicious_count"] == 0
 
 
@@ -505,12 +505,12 @@ class SubQueryTextOnlyLLM(MockLLM):
 
 
 def test_subscription_query_not_treated_as_operation():
-    """'我有哪些订阅'是查询类：含'订阅'不得被操作关键词'订'误伤 → 走查询重试引导，非操作引导、非透传。"""
+    """'我有哪些订阅'是查询类：含'订阅'不得被操作关键词'订'误伤 → 规则兜底执行真实订阅查询，非操作引导、非透传。"""
     o = AgentOrchestrator(llm=SubQueryTextOnlyLLM())
     r = o.handle("我有哪些订阅")
-    assert r.requires == "chat"
-    # 查询引导文案（模型没调工具，不得透传其文字）
-    assert "还没有执行任何查询" in r.message
+    assert r.requires == "auto"
+    assert r.tool == "list_subscriptions"
+    assert "某某视频" in r.message
     assert o.status()["suspicious_count"] == 0
 
 
@@ -522,11 +522,13 @@ class BalanceTextOnlyLLM(MockLLM):
 
 
 def test_balance_variant_retries_not_blocked():
-    """'我余额看看'（查询类）模型文字编造金额（无执行编号/账户号）→ 走内部重试 → 查询引导，不拦截、不累计可疑。"""
+    """'我余额看看'（查询类）模型文字编造金额（无执行编号/账户号）→ 内部重试 → 规则兜底执行真实余额查询。
+    不拦截、不累计可疑；结果来自工具（58200），编造文字永不透传。"""
     o = AgentOrchestrator(llm=BalanceTextOnlyLLM())
     r = o.handle("我余额看看")
-    assert r.requires == "chat"
-    assert "还没有执行任何查询" in r.message
+    assert r.requires == "auto"
+    assert r.tool == "query_balance"
+    assert "58200.00" in r.message  # 真实数据（工具返回），非模型编造文字
     assert o.status()["suspicious_count"] == 0
 
 
@@ -564,10 +566,49 @@ class QueryFailureTextLLM(MockLLM):
 
 
 def test_query_failure_text_not_passed_through():
-    """查询类模型编造'查询失败请联系客服' → 不透传模型文字，走查询引导；不累计可疑（无铁证）。"""
+    """查询类模型编造'查询失败请联系客服' → 不透传模型文字：规则兜底直接执行真实余额查询；不累计可疑（无铁证）。"""
     o = AgentOrchestrator(llm=QueryFailureTextLLM())
     r = o.handle("查看余额")
-    assert r.requires == "chat"
-    assert "还没有执行任何查询" in r.message
+    assert r.requires == "auto"
+    assert r.tool == "query_balance"
+    assert "58200.00" in r.message  # 真实数据
     assert "客服" not in r.message  # 模型的编造文案未被透传
     assert o.status()["suspicious_count"] == 0
+
+
+# ========== 绿级查询规则兜底路由 ==========
+class _NoToolReply:
+    """模拟模型连续未调工具（只回话不调工具——真实 DeepSeek 的偶发行为）。"""
+
+    def __init__(self, text="我还没有执行任何查询。请允许我通过工具为你核实。"):
+        self.tool_calls = []
+        self.plan = None
+        self.text = text
+
+
+def test_query_failover_routes_when_llm_refuses():
+    """模型连续两次未调工具时：明确查询意图走规则兜底路由（绿级真实查询），不再透传"再对我说一次"话术。"""
+    o = make()
+    o.llm.complete = lambda messages, tools: _NoToolReply()
+    r = o.handle("帮我看看有哪些异常交易")
+    assert r.requires == "auto"
+    assert r.tool == "analyze_bills"
+    assert "3 笔异常" in r.message  # 真实数据（非编造）
+    # 兜底不改安全边界：操作类绝不兜底自动执行，仍走确认/引导
+    r2 = o.handle("给妈妈转800元")
+    assert r2.requires in ("chat", "confirm")
+
+
+def test_query_failover_balance_and_subscription():
+    """余额/订阅同样可兜底；关键词不命中则保持原话术。"""
+    o = make()
+    o.llm.complete = lambda messages, tools: _NoToolReply()
+    r1 = o.handle("查看余额")
+    assert r1.requires == "auto" and r1.tool == "query_balance"
+    assert "58200.00" in r1.message
+    r2 = o.handle("我有哪些订阅")
+    assert r2.requires == "auto" and r2.tool == "list_subscriptions"
+    assert "某某视频" in r2.message
+    # 关键词不命中（纯闲聊）：透传模型回复，不兜底不拦截
+    r3 = o.handle("今天天气怎么样")
+    assert r3.requires == "chat"
