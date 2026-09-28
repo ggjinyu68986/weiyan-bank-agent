@@ -410,10 +410,7 @@
               itemStyle: i === maxIdx
                 ? { borderRadius: 6, borderColor: "#0B2D5C", borderWidth: 3 }
                 : { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
-              label: i === maxIdx
-                ? { show: true, position: "center", formatter: "{d}%", color: "#fff",
-                    fontSize: 17, fontWeight: 800, lineHeight: 20, textShadowBlur: 4, textShadowColor: "rgba(11,45,92,.5)" }
-                : { show: false },
+              label: { show: false },
             };
           });
           billChart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
