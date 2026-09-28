@@ -302,6 +302,41 @@ class BankService:
                 return b
         return None
 
+    def _latest_open_bill_with_payer(self, payer_account_id: str) -> SplitBill | None:
+        """按收款人账户兜底定位最近未结清收款单（对端视角：收款人支付自己的分摊，
+        不知道发起人账户也能定位到单）。"""
+        for b in reversed(list(self.store.split_bills.values())):
+            if b.status == "open" and any(p.account_id == payer_account_id for p in b.payers):
+                return b
+        return None
+
+    def list_pending_splits(self, account_id: str) -> OpResult:
+        """我的待付 AA 分摊（对端视角）：当前账户作为收款对象、且未付款的分摊单列表。
+        演示价值：多人 AA 不是"自说自话"——每个参与者用自己的账户/渠道查询并确认付款，
+        发起人端实时看到进度变化。"""
+        acc = self._account(account_id)
+        if not acc:
+            return OpResult.error("ACCOUNT_NOT_FOUND", "账户不存在：" + account_id)
+        items = []
+        for b in self.store.split_bills.values():
+            if b.status != "open":
+                continue
+            for p in b.payers:
+                if p.account_id == acc.id and not p.paid:
+                    items.append({
+                        "bill_id": b.id,
+                        "title": b.title,
+                        "initiator_account_id": b.account_id,
+                        "amount_cents": p.amount_cents,
+                        "per_person_cents": b.per_person_cents,
+                        "paid_count": sum(1 for q in b.payers if q.paid),
+                        "payer_count": len(b.payers),
+                    })
+        return OpResult.success(
+            {"count": len(items), "items": items},
+            message="待付 AA 分摊查询完成",
+        )
+
     def split_bill_status(self, account_id: str, bill_id: str = "") -> OpResult:
         """AA 收款进度（绿级查询）：已收/待收、每人金额、状态。"""
         bill = self.store.split_bills.get(bill_id) or self._latest_open_bill(account_id)
@@ -330,7 +365,9 @@ class BankService:
                        bill_id: str = "", request_id: str | None = None) -> OpResult:
         """AA 收款（闭环第二步）：收款人确认付款——从 payer 账户扣人均金额，入账发起人账户。
         幂等：同一收款人重复付款拒绝；全部付清自动结清（status=settled）。"""
-        bill = self.store.split_bills.get(bill_id) or self._latest_open_bill(account_id)
+        bill = (self.store.split_bills.get(bill_id)
+                or self._latest_open_bill(account_id)
+                or self._latest_open_bill_with_payer(payer_account_id))
         if not bill:
             return OpResult.error("BILL_NOT_FOUND", "没有进行中的 AA 收款单，先发起 AA 再收款")
         if bill.status == "settled":

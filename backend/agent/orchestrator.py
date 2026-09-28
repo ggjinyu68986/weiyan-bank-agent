@@ -30,12 +30,15 @@ from .decision import ACTION_TO_GRADE, DecisionEngine, Verdict, _merge_grade
 _WEEK_CN = "一二三四五六日"
 
 
-def _system_prompt() -> str:
-    """系统提示词：实时注入当前日期（模型知道"现在是几号"理解相对时间，但严禁自算日期）。
-    写死日期会随真实时钟过期——演示到任何一天都自洽。"""
+def _system_prompt(user_name: str = "小明", account: str = "6222-0001") -> str:
+    """系统提示词：实时注入当前日期与当前用户上下文（姓名/账户）。
+    多用户视角（AA 对端/IM 渠道切换用户）依赖注入：模型知道"我是谁、我的账户是哪个"，
+    查询与付款默认落到当前账户，而不是写死的单一用户。"""
     now = datetime.now()
     today = f"{now:%Y-%m-%d}（周{_WEEK_CN[now.weekday()]}）"
-    return SYSTEM_PROMPT.replace("{TODAY}", today)
+    return (SYSTEM_PROMPT.replace("{TODAY}", today)
+                          .replace("{USER_NAME}", user_name)
+                          .replace("{ACCOUNT}", account))
 
 # 工具 → 银行服务执行器（能力层映射；权限判定不在这里，在上游编排）
 # 覆盖赛题 6 大场景：转账家族 / 账单分析 / 理财 / 卡片 / 订阅代扣 / 跨场景联动
@@ -72,6 +75,7 @@ EXECUTORS = {
     "pay_split_bill": lambda svc, p: svc.pay_split_bill(
         p["account_id"], p["payer_account_id"], p.get("bill_id", ""), p.get("request_id"),
     ),
+    "list_pending_splits": lambda svc, p: svc.list_pending_splits(p["account_id"]),
     # 场景2：账单分析
     "query_balance": lambda svc, p: svc.get_balance(p["account_id"]),
     "list_transactions": lambda svc, p: svc.list_transactions(p["account_id"], p.get("limit", 50)),
@@ -152,10 +156,14 @@ SUSPICIOUS_LIMIT = 3  # 连续注入/越权试探
 
 class AgentOrchestrator:
     def __init__(self, llm: BaseLLM | None = None, service: BankService | None = None,
-                 decision: DecisionEngine | None = None):
+                 decision: DecisionEngine | None = None,
+                 user_id: int = 1, account_id: str = "6222-0001", user_name: str = "小明"):
         self.llm = llm or build_llm()
         self.service = service or BankService()
         self.decision = decision or DecisionEngine()  # 双引擎决策层（off/mock/live）
+        self.user_id = user_id
+        self.account_id = account_id
+        self.user_name = user_name
         self.registry = load_registry()
         self.tools = build_tool_schemas()
         self.history: list[dict] = []
@@ -219,7 +227,7 @@ class AgentOrchestrator:
             return out
 
         self.history.append({"role": "user", "content": user_msg})
-        messages = [{"role": "system", "content": _system_prompt()}, *self.history]
+        messages = [{"role": "system", "content": _system_prompt(self.user_name, self.account_id)}, *self.history]
         reply = self.llm.complete(messages, tools=self.tools)
 
         if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
@@ -238,7 +246,7 @@ class AgentOrchestrator:
                 })
                 self._log(user_msg, "", {}, "", "retry", "", "查询/操作类请求未调工具，系统自动重试一次")
                 retry = self.llm.complete(
-                    [{"role": "system", "content": _system_prompt()}, *self.history], tools=self.tools
+                    [{"role": "system", "content": _system_prompt(self.user_name, self.account_id)}, *self.history], tools=self.tools
                 )
                 if retry.tool_calls or retry.plan:
                     return self._route_tool(retry, user_msg, st)
@@ -522,6 +530,14 @@ def _summarize(tool: str, r) -> str:
             f"每人 {d['per_person_cents'] / 100:.2f} 元，总计 {d['total_cents'] / 100:.2f} 元；"
             f"待收款：{payers}（说「XX已付款」逐一入账）"
         )
+    if tool == "list_pending_splits":
+        if not d["items"]:
+            return "你当前没有待付的 AA 分摊。"
+        lines = "；".join(
+            f"「{x['title']}」待付 {x['amount_cents'] / 100:.2f} 元（已收 {x['paid_count']}/{x['payer_count']}）"
+            for x in d["items"]
+        )
+        return f"你有 {d['count']} 项待付 AA 分摊：{lines}（说「支付聚餐AA」即可付款）"
     if tool == "split_bill_status":
         paid = "、".join(p["account_id"] for p in d["paid"]) or "无"
         due = "、".join(p["account_id"] for p in d["due"]) or "无"

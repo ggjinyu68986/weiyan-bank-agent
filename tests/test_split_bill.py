@@ -106,3 +106,34 @@ def test_split_bill_filters_self_and_duplicates(svc):
     assert r.ok
     ids = [p["account_id"] for p in r.data["payers"]]
     assert ids == ["6222-1005", "6222-1003"]  # 自己过滤、小王去重、张伟保留
+
+
+# ========== 对端视角：多方协作（AA 不是单机） ==========
+def test_list_pending_splits_shows_payer_view(svc):
+    """小明发起 AA（点名小王、张伟）→ 张伟（6222-1003）能查到自己的待付分摊。"""
+    svc.split_bill("6222-0001", 60_000, 3, "聚餐AA", payer_accounts=["小王", "张伟"])
+    r = svc.list_pending_splits("6222-1003")
+    assert r.ok
+    assert r.data["count"] == 1
+    item = r.data["items"][0]
+    assert item["title"] == "聚餐AA" and item["amount_cents"] == 20_000
+    assert item["initiator_account_id"] == "6222-0001"
+    # 发起人查自己的待付 = 空（不向自己收款）
+    assert svc.list_pending_splits("6222-0001").data["count"] == 0
+
+
+def test_payer_pays_then_initiator_sees_progress(svc):
+    """张伟确认付款（对端视角扣款入账）→ 小明端进度从 0/2 变 1/2；张伟待付清空。"""
+    svc.split_bill("6222-0001", 60_000, 3, "聚餐AA", payer_accounts=["小王", "张伟"])
+    # 张伟付款前余额 800_000
+    before = svc.get_balance("6222-1003").data["balance_cents"]
+    r = svc.pay_split_bill("6222-0001", "6222-1003")
+    assert r.ok and r.data["paid_count"] == 1
+    # 张伟 -200 元、小明 +200 元
+    assert svc.get_balance("6222-1003").data["balance_cents"] == before - 20_000
+    # 小明端进度 1/2（小王仍待收）
+    st = svc.split_bill_status("6222-0001")
+    assert st.data["paid_count"] == 1 and st.data["payer_count"] == 2
+    assert [p["account_id"] for p in st.data["due"]] == ["6222-1005"]
+    # 张伟的待付已清空
+    assert svc.list_pending_splits("6222-1003").data["count"] == 0

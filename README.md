@@ -26,10 +26,13 @@ uvicorn backend.api.main:app --reload
 ### 多渠道：同一内核，IM 渠道也可直接对话
 
 ```bash
-python -m backend.channels.console   # 终端 IM 渠道（确认/强验证/熔断/审计全可用）
+python -m backend.channels.console                 # 小明视角
+python -m backend.channels.console --user 张伟     # 指定视角；会话内 /user 张伟 随时切换
 ```
 
 > Web/APP（frontend）与 IM（console）共用同一 Agent 内核与全部安全机制；生产可新增微信/飞书/Telegram 适配器（`backend/channels/` 协议一致）。
+> **多人协作（AA 不是单机）**：6 位用户（小明/王妈妈/李太太/张伟/爸爸/小王）各有独立账户与独立 Agent 会话，共享同一银行数据。
+> 演示：终端 1（小明）发 AA → 终端 2（`--user 张伟`）问「我有哪些待付的AA」→「支付聚餐AA」确认付款 → 终端 1 查「AA进度」即见 1/2。
 
 ## 演示脚本（答辩/录屏推荐顺序）
 

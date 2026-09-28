@@ -82,6 +82,7 @@ class MockLLM(BaseLLM):
             if m.get("role") == "user":
                 text = m.get("content", "")
                 break
+        cur = self._current_account(messages)  # 当前视角账户（多用户：AA 对端/IM 切换）
 
         # 注入/绕过试探 → 让 LLM"试图"调用未注册工具，验证权限门拦截
         if any(k in text for k in ("无视规则", "忽略规则", "绕过", "hack", "直接转走")):
@@ -89,14 +90,14 @@ class MockLLM(BaseLLM):
 
         # ---- 场景2 查询 ----
         if "余额" in text:
-            return self._tool("query_balance", {"account_id": USER_ACCOUNT})
+            return self._tool("query_balance", {"account_id": cur})
         if any(k in text for k in ("流水", "明细")):
-            return self._tool("list_transactions", {"account_id": USER_ACCOUNT, "limit": 20})
+            return self._tool("list_transactions", {"account_id": cur, "limit": 20})
         if any(k in text for k in ("年度", "全年", "今年账单")):
-            return self._tool("annual_report", {"account_id": USER_ACCOUNT, "year": 2026})
+            return self._tool("annual_report", {"account_id": cur, "year": 2026})
         if any(k in text for k in ("账单", "花了", "消费", "异常", "可疑")):
             month = 9 if ("这个月" in text or "9月" in text or "本月" in text) else None
-            return self._tool("analyze_bills", {"account_id": USER_ACCOUNT, "month": month})
+            return self._tool("analyze_bills", {"account_id": cur, "month": month})
 
         # ---- 场景1 转账 ----
         if "转" in text and any(k in text for k in
@@ -110,7 +111,7 @@ class MockLLM(BaseLLM):
                         ("一分钟后" if "分钟后" in text else None))))))
             cycle = 7 if "每周" in text else (30 if ("每月" in text or "下个月" in text) else 0)
             params = {
-                "from_account_id": USER_ACCOUNT, "to_account_id": self._pick_to(text),
+                "from_account_id": cur, "to_account_id": self._pick_to(text, cur),
                 "amount_cents": _extract_yuan(text) * 100,
                 "note": "定时" + ("给妈妈" if "妈妈" in text else ""),
                 "cycle_days": cycle,
@@ -121,17 +122,23 @@ class MockLLM(BaseLLM):
         if "转" in text:
             m = re.search(r"1\d{10}", text)  # 按手机号转账（赛题示例）
             return self._tool("transfer", {
-                "from_account_id": USER_ACCOUNT,
-                "to_account_id": m.group(0) if m else self._pick_to(text),
+                "from_account_id": cur,
+                "to_account_id": m.group(0) if m else self._pick_to(text, cur),
                 "amount_cents": _extract_yuan(text) * 100,
                 "note": "给" + ("妈妈" if "妈妈" in text else ("老婆" if ("老婆" in text or "爱人" in text) else "家人")),
             })
-        if any(k in text for k in ("AA", "aa", "平分", "凑份子", "已付款", "付AA", "收款进度", "收款入账")):
+        if any(k in text for k in ("AA", "aa", "平分", "凑份子", "已付款", "付AA", "收款进度", "收款入账", "待付")):
             if any(k in text for k in ("进度", "收到", "收齐", "付了多少")):
-                return self._tool("split_bill_status", {"account_id": USER_ACCOUNT})
-            if any(k in text for k in ("已付款", "付AA", "支付", "AA收款", "转给发起人")):
+                return self._tool("split_bill_status", {"account_id": cur})
+            if any(k in text for k in ("待付", "待付款", "我要付", "分摊单")):
+                return self._tool("list_pending_splits", {"account_id": cur})
+            if any(k in text for k in ("已付款", "付AA", "支付", "付款", "AA收款", "转给发起人")):
+                payer = self._pick_to(text, cur)
+                # 没说具体"XX已付款"（如"支付聚餐AA"）→ 视为当前用户支付自己的分摊
+                if payer == USER_ACCOUNT and cur != USER_ACCOUNT:
+                    payer = cur
                 return self._tool("pay_split_bill", {
-                    "account_id": USER_ACCOUNT, "payer_account_id": self._pick_to(text),
+                    "account_id": cur, "payer_account_id": payer,
                 })
             explicit = re.search(r"(\d+)\s*人", text)
             people = int(explicit.group(1)) if explicit else 0
@@ -140,7 +147,7 @@ class MockLLM(BaseLLM):
             if not explicit:
                 people = len(payers) + 1 if payers else 3
             params = {
-                "account_id": USER_ACCOUNT, "total_cents": _extract_yuan(text) * 100,
+                "account_id": cur, "total_cents": _extract_yuan(text) * 100,
                 "people_count": people, "title": "聚餐AA",
             }
             if payers:
@@ -185,7 +192,7 @@ class MockLLM(BaseLLM):
         if any(k in text for k in ("退订", "取消订阅")):
             return self._tool("cancel_subscription", {"subscription_id": "S-001"})
         if any(k in text for k in ("扣费", "自动扣", "订阅识别")):
-            return self._tool("detect_subscriptions", {"account_id": USER_ACCOUNT})
+            return self._tool("detect_subscriptions", {"account_id": cur})
         if "续费" in text:
             return self._tool("subscription_reminders", {"user_id": 1})
         if "订阅" in text:
@@ -222,8 +229,9 @@ class MockLLM(BaseLLM):
     def _tool(self, name, arguments) -> LLMReply:
         return LLMReply(tool_calls=[{"name": name, "arguments": arguments}])
 
-    def _pick_to(self, text) -> str:
-        """收款人解析（与联系人簿保持一致：姓名/别名 → 账户号）。"""
+    def _pick_to(self, text, default_account: str = USER_ACCOUNT) -> str:
+        """收款人解析（与联系人簿保持一致：姓名/别名 → 账户号）。
+        default_account：未点名收款人时的兜底（多用户视角下应落在当前账户）。"""
         for name, acc in (
             ("老婆", "6222-1002"), ("爱人", "6222-1002"),
             ("妈妈", "6222-1001"), ("张伟", "6222-1003"),
@@ -231,6 +239,16 @@ class MockLLM(BaseLLM):
         ):
             if name in text:
                 return acc
+        return default_account
+
+    def _current_account(self, messages) -> str:
+        """从系统提示词提取当前视角账户（多用户：AA 对端/IM 渠道切换用户）。
+        格式：服务用户「张伟」（当前账户 6222-1003）。"""
+        for m in messages:
+            if m.get("role") == "system":
+                m2 = re.search(r"账户\s*(6222-\d{4})", m.get("content", ""))
+                if m2:
+                    return m2.group(1)
         return USER_ACCOUNT
 
     def _pick_payers(self, text) -> list[str]:

@@ -135,6 +135,33 @@ def test_split_bill_named_payers_via_agent():
     assert [p["account_id"] for p in st.data["payers"]] == ["6222-1005", "6222-1003"]
 
 
+def test_zhangwei_view_pending_and_pay():
+    """对端视角（AA 多方协作）：张伟用自己账户登录 → 查待付 AA → 确认付款 → 小明端进度更新。
+    证明 AA 不是单机：每个参与者有独立账户/会话，付款是真实扣款入账。"""
+    o_xiaoming = make()  # 共享同一 service 的多用户会话
+    o_zhangwei = AgentOrchestrator(llm=MockLLM(), service=o_xiaoming.service,
+                                   user_id=4, account_id="6222-1003", user_name="张伟")
+    # 小明发起 AA（点名小王、张伟）
+    r1 = o_xiaoming.handle("和小王，张伟聚餐 一共600元 帮我AA")
+    assert r1.requires == "confirm"
+    o_xiaoming.confirm(r1.pending_id)
+    # 张伟视角：查我的待付
+    r2 = o_zhangwei.handle("我有哪些待付的AA")
+    assert r2.requires == "auto"
+    assert r2.tool == "list_pending_splits"
+    assert "聚餐AA" in r2.message and "200.00" in r2.message
+    # 张伟确认付款 → 走黄级确认（pay_split_bill）
+    r3 = o_zhangwei.handle("支付聚餐AA")
+    assert r3.requires == "confirm"
+    assert r3.params["payer_account_id"] == "6222-1003"  # 付的是张伟自己的账户
+    out = o_zhangwei.confirm(r3.pending_id)
+    assert out.requires == "auto"
+    # 小明端进度：1/2（张伟已付，小王待付）
+    st = o_xiaoming.service.split_bill_status("6222-0001")
+    assert st.data["paid_count"] == 1
+    assert [p["account_id"] for p in st.data["due"]] == ["6222-1005"]
+
+
 def test_cancel_subscription_via_agent():
     """取消订阅（黄级确认）。"""
     o = make()

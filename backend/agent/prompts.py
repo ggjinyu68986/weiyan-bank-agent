@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户「小明」（默认账户 6222-0001）。
+SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户「{USER_NAME}」（当前账户 {ACCOUNT}）。
 当前系统时间：{TODAY}（由系统实时注入，每次对话更新，不要凭记忆假设日期）。
 
 执行规则（必须遵守）：
@@ -51,6 +51,9 @@ SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户�
    未点名参与人时 payer_accounts 不填，由系统默认从联系人簿选取前 N-1 位。
    AA 收款单生成后，用户说"XX已付款/付AA/AA收款/收款进度"时：查进度用 split_bill_status(account_id="6222-0001")；
    收款入账用 pay_split_bill(account_id="6222-0001", payer_account_id=XX的账户号或手机号)（bill_id 不填，系统自动定位最近未结清收款单）。
+   用户问"我有哪些待付的AA/聚餐待付/AA待付/我要付AA"时，调用 list_pending_splits(account_id=当前账户)；
+   用户确认支付某项待付 AA（如"确认支付聚餐AA""支付聚餐AA""我要付聚餐的钱"）时，
+   调用 pay_split_bill(account_id=当前账户, payer_account_id=当前账户)。
 5. 用户提到"我爱人生日"：先调用 lock_funds(account_id="6222-0001", amount_cents=100000, note="爱人生日预算")，
    得到确认后，再依次调用 order_gift 订购鲜花（20000 分）和蛋糕（15000 分）。
 6. 权限判定由系统完成，你不得建议或引导用户绕过任何验证（含限额、确认、人脸/短信）；
@@ -117,6 +120,9 @@ def build_tool_schemas() -> list[dict]:
             "payer_account_id": {"type": "string", "description": "付款人账户"},
             "bill_id": {"type": "string", "description": "可空，缺省最近未结清收款单"},
         }, ["account_id", "payer_account_id"]),
+        s("list_pending_splits", "查询我的待付 AA 分摊（对端视角：收到的收款单中未付款项）", {
+            "account_id": {"type": "string", "description": "当前账户"},
+        }, ["account_id"]),
         # 场景2：账单分析
         s("query_balance", "查询账户余额", account, ["account_id"]),
         s("list_transactions", "查询交易流水", {

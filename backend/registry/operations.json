@@ -1,37 +1,205 @@
 {
   "_说明": "操作注册表 = 权限规则宪法。改这里 = 改权限规则，不用改代码。risk: green=自动 / yellow=确认 / red=强验证；daily_limit_cents 为黄类操作的单日累计限额（分）；mfa=true 表示必须多因子认证。",
   "operations": [
-    { "tool": "query_balance", "name_cn": "余额查询", "category": "查询", "risk": "green" },
-    { "tool": "list_transactions", "name_cn": "交易记录查询", "category": "查询", "risk": "green" },
-    { "tool": "analyze_bills", "name_cn": "账单分析", "category": "查询", "risk": "green" },
-    { "tool": "annual_report", "name_cn": "年度账单报告", "category": "查询", "risk": "green" },
-    { "tool": "wealth_returns", "name_cn": "理财收益查询", "category": "查询", "risk": "green" },
-    { "tool": "risk_assessment", "name_cn": "风险评估问卷", "category": "查询", "risk": "green" },
-    { "tool": "wealth_products", "name_cn": "理财产品列表", "category": "理财", "risk": "green" },
-    { "tool": "wealth_compare", "name_cn": "理财对比", "category": "理财", "risk": "green" },
-    { "tool": "detect_subscriptions", "name_cn": "订阅扣费识别", "category": "订阅", "risk": "green" },
-    { "tool": "subscription_reminders", "name_cn": "续费提醒", "category": "订阅", "risk": "green" },
-    { "tool": "freeze_card", "name_cn": "卡片冻结", "category": "卡片", "risk": "yellow", "daily_limit_cents": 0 },
-    { "tool": "unfreeze_card", "name_cn": "卡片解冻", "category": "卡片", "risk": "yellow", "daily_limit_cents": 0 },
-
-    { "tool": "transfer", "name_cn": "转账", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
-    { "tool": "schedule_transfer", "name_cn": "定时转账", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
-    { "tool": "split_bill", "name_cn": "AA拆分收款", "category": "转账", "risk": "yellow", "daily_limit_cents": 100000 },
-    { "tool": "split_bill_status", "name_cn": "AA收款进度查询", "category": "转账", "risk": "green" },
-    { "tool": "pay_split_bill", "name_cn": "AA收款入账", "category": "转账", "risk": "yellow" },
-    { "tool": "list_contacts", "name_cn": "联系人查询", "category": "转账", "risk": "green" },
-    { "tool": "add_contact", "name_cn": "添加联系人", "category": "转账", "risk": "green" },
-    { "tool": "apply_virtual_card", "name_cn": "虚拟卡申请", "category": "卡片", "risk": "yellow" },
-    { "tool": "lock_funds", "name_cn": "资金锁定", "category": "跨场景联动", "risk": "yellow", "daily_limit_cents": 100000 },
-    { "tool": "order_gift", "name_cn": "订购礼物/鲜花蛋糕", "category": "跨场景联动", "risk": "yellow", "daily_limit_cents": 100000 },
-    { "tool": "list_subscriptions", "name_cn": "订阅查询", "category": "订阅", "risk": "green" },
-    { "tool": "cancel_subscription", "name_cn": "取消订阅", "category": "订阅", "risk": "yellow" },
-
-    { "tool": "report_card_loss", "name_cn": "卡片挂失", "category": "卡片", "risk": "red", "mfa": true },
-    { "tool": "unlock_card", "name_cn": "卡片解挂", "category": "卡片", "risk": "red", "mfa": true },
-    { "tool": "adjust_card_limit", "name_cn": "卡片额度调整", "category": "卡片", "risk": "red", "mfa": true },
-    { "tool": "change_password", "name_cn": "密码修改", "category": "账户", "risk": "red", "mfa": true },
-    { "tool": "buy_wealth", "name_cn": "理财产品申购", "category": "理财", "risk": "red", "mfa": true },
-    { "tool": "redeem_wealth", "name_cn": "理财产品赎回", "category": "理财", "risk": "red", "mfa": true }
+    {
+      "tool": "query_balance",
+      "name_cn": "余额查询",
+      "category": "查询",
+      "risk": "green"
+    },
+    {
+      "tool": "list_transactions",
+      "name_cn": "交易记录查询",
+      "category": "查询",
+      "risk": "green"
+    },
+    {
+      "tool": "analyze_bills",
+      "name_cn": "账单分析",
+      "category": "查询",
+      "risk": "green"
+    },
+    {
+      "tool": "annual_report",
+      "name_cn": "年度账单报告",
+      "category": "查询",
+      "risk": "green"
+    },
+    {
+      "tool": "wealth_returns",
+      "name_cn": "理财收益查询",
+      "category": "查询",
+      "risk": "green"
+    },
+    {
+      "tool": "risk_assessment",
+      "name_cn": "风险评估问卷",
+      "category": "查询",
+      "risk": "green"
+    },
+    {
+      "tool": "wealth_products",
+      "name_cn": "理财产品列表",
+      "category": "理财",
+      "risk": "green"
+    },
+    {
+      "tool": "wealth_compare",
+      "name_cn": "理财对比",
+      "category": "理财",
+      "risk": "green"
+    },
+    {
+      "tool": "detect_subscriptions",
+      "name_cn": "订阅扣费识别",
+      "category": "订阅",
+      "risk": "green"
+    },
+    {
+      "tool": "subscription_reminders",
+      "name_cn": "续费提醒",
+      "category": "订阅",
+      "risk": "green"
+    },
+    {
+      "tool": "freeze_card",
+      "name_cn": "卡片冻结",
+      "category": "卡片",
+      "risk": "yellow",
+      "daily_limit_cents": 0
+    },
+    {
+      "tool": "unfreeze_card",
+      "name_cn": "卡片解冻",
+      "category": "卡片",
+      "risk": "yellow",
+      "daily_limit_cents": 0
+    },
+    {
+      "tool": "transfer",
+      "name_cn": "转账",
+      "category": "转账",
+      "risk": "yellow",
+      "daily_limit_cents": 100000
+    },
+    {
+      "tool": "schedule_transfer",
+      "name_cn": "定时转账",
+      "category": "转账",
+      "risk": "yellow",
+      "daily_limit_cents": 100000
+    },
+    {
+      "tool": "split_bill",
+      "name_cn": "AA拆分收款",
+      "category": "转账",
+      "risk": "yellow",
+      "daily_limit_cents": 100000
+    },
+    {
+      "tool": "split_bill_status",
+      "name_cn": "AA收款进度查询",
+      "category": "转账",
+      "risk": "green"
+    },
+    {
+      "tool": "pay_split_bill",
+      "name_cn": "AA收款入账",
+      "category": "转账",
+      "risk": "yellow"
+    },
+    {
+      "tool": "list_contacts",
+      "name_cn": "联系人查询",
+      "category": "转账",
+      "risk": "green"
+    },
+    {
+      "tool": "add_contact",
+      "name_cn": "添加联系人",
+      "category": "转账",
+      "risk": "green"
+    },
+    {
+      "tool": "apply_virtual_card",
+      "name_cn": "虚拟卡申请",
+      "category": "卡片",
+      "risk": "yellow"
+    },
+    {
+      "tool": "lock_funds",
+      "name_cn": "资金锁定",
+      "category": "跨场景联动",
+      "risk": "yellow",
+      "daily_limit_cents": 100000
+    },
+    {
+      "tool": "order_gift",
+      "name_cn": "订购礼物/鲜花蛋糕",
+      "category": "跨场景联动",
+      "risk": "yellow",
+      "daily_limit_cents": 100000
+    },
+    {
+      "tool": "list_subscriptions",
+      "name_cn": "订阅查询",
+      "category": "订阅",
+      "risk": "green"
+    },
+    {
+      "tool": "cancel_subscription",
+      "name_cn": "取消订阅",
+      "category": "订阅",
+      "risk": "yellow"
+    },
+    {
+      "tool": "report_card_loss",
+      "name_cn": "卡片挂失",
+      "category": "卡片",
+      "risk": "red",
+      "mfa": true
+    },
+    {
+      "tool": "unlock_card",
+      "name_cn": "卡片解挂",
+      "category": "卡片",
+      "risk": "red",
+      "mfa": true
+    },
+    {
+      "tool": "adjust_card_limit",
+      "name_cn": "卡片额度调整",
+      "category": "卡片",
+      "risk": "red",
+      "mfa": true
+    },
+    {
+      "tool": "change_password",
+      "name_cn": "密码修改",
+      "category": "账户",
+      "risk": "red",
+      "mfa": true
+    },
+    {
+      "tool": "buy_wealth",
+      "name_cn": "理财产品申购",
+      "category": "理财",
+      "risk": "red",
+      "mfa": true
+    },
+    {
+      "tool": "redeem_wealth",
+      "name_cn": "理财产品赎回",
+      "category": "理财",
+      "risk": "red",
+      "mfa": true
+    },
+    {
+      "tool": "list_pending_splits",
+      "name_cn": "我的待付AA",
+      "category": "AA收款",
+      "risk": "green",
+      "daily_limit_cents": null
+    }
   ]
 }
