@@ -88,6 +88,31 @@ body {
 .tab.active { display: flex; }
 
 /* ===== 对话 Tab：资产卡 ===== */
+/* 视角切换（多用户：AA 多方协作——谁登录就是谁的账户） */
+.view-switch {
+  display: flex; gap: 6px; padding: 0 2px 8px; overflow-x: auto; flex-shrink: 0;
+}
+.chip {
+  background: #fff; border: 1.5px solid var(--line); color: var(--muted);
+  font-size: 12px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  white-space: nowrap; transition: all .15s ease;
+}
+.chip:hover { border-color: var(--blue); color: var(--blue); }
+.chip.on { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+
+/* 待付 AA 卡（对端视角：看别人有没有 A 钱） */
+.pending-card {
+  align-self: flex-start; max-width: 88%; min-width: 240px;
+  background: #FFFBF0; border: 1.5px solid var(--gold);
+  border-radius: 13px; padding: 12px 14px; font-size: 12.5px;
+  animation: fadeIn .22s ease;
+}
+.pending-card .aa-head { font-weight: 700; color: var(--text); font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+.pending-card .aa-count { color: var(--gold); font-weight: 800; font-size: 15px; }
+.pending-card .aa-sub { color: var(--muted); font-size: 11px; margin: 5px 0 8px; }
+.pending-card .btns { display: flex; justify-content: flex-end; }
+.pending-card .btn.primary { background: var(--gold); border-color: var(--gold); }
+
 .asset-card {
   background: linear-gradient(135deg, var(--blue-deep), var(--blue));
   border-radius: 14px; color: #fff; padding: 14px 16px 12px;

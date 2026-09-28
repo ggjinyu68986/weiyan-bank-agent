@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.agent.orchestrator import AgentOrchestrator, AgentReply
+from backend.agent.users import DEFAULT_USER, VIEW_USERS
 from backend.bank_sim.service import BankService
 
 app = FastAPI(title="Weiyan Mock Bank + Agent API", version="0.2.0")
@@ -29,7 +30,25 @@ app.add_middleware(
 service = BankService()
 # 关键：Agent 与查询接口必须共用同一个 BankService 实例（同一份 store），
 # 否则"转账扣款"发生在 agent 私有 store、查询读的是另一份数据 → 余额不变（曾为真机演示 bug）。
-agent = AgentOrchestrator(service=service)
+# 多用户视角：每个用户独立 Agent 会话（独立历史/熔断/待确认），共享同一份银行数据——
+# AA 多方协作演示：张伟在自己的会话里查待付并付款，小明端进度实时联动。
+_agents: dict[str, AgentOrchestrator] = {}
+
+
+def agent_for(user: str = DEFAULT_USER) -> AgentOrchestrator:
+    """取（或创建）指定视角的 Agent 会话。"""
+    if user not in VIEW_USERS:
+        raise HTTPException(status_code=400, detail=f"未知视角用户：{user}（可用：{'、'.join(VIEW_USERS)}）")
+    if user not in _agents:
+        uid, acc = VIEW_USERS[user]
+        _agents[user] = AgentOrchestrator(service=service, user_id=uid, account_id=acc, user_name=user)
+    return _agents[user]
+
+
+def _rebuild_agents() -> None:
+    """重置演示：所有用户会话重建（共享 store 复位一次）。"""
+    service.store.reset()
+    _agents.clear()
 
 
 # ---------- Mock Bank 接口 ----------
@@ -111,6 +130,7 @@ def transfer(req: TransferRequest):
 # ---------- Agent 对话接口 ----------
 class ChatRequest(BaseModel):
     message: str
+    user: str = DEFAULT_USER  # 视角用户（AA 多方协作：谁登录就是谁的账户）
 
 
 class ConfirmRequest(BaseModel):
@@ -141,39 +161,39 @@ def _reply(r: AgentReply) -> dict:
 
 @app.post("/api/v1/agent/chat")
 def agent_chat(req: ChatRequest):
-    return _reply(agent.handle(req.message))
+    return _reply(agent_for(req.user).handle(req.message))
 
 
 @app.post("/api/v1/agent/confirm")
-def agent_confirm(req: ConfirmRequest):
-    return _reply(agent.confirm(req.pending_id))
+def agent_confirm(req: ConfirmRequest, user: str = DEFAULT_USER):
+    return _reply(agent_for(user).confirm(req.pending_id))
 
 
 @app.post("/api/v1/agent/authorize")
-def agent_authorize(req: AuthorizeRequest):
-    return _reply(agent.authorize(req.pending_id, req.mfa_code))
+def agent_authorize(req: AuthorizeRequest, user: str = DEFAULT_USER):
+    return _reply(agent_for(user).authorize(req.pending_id, req.mfa_code))
 
 
 @app.post("/api/v1/agent/reset")
 def agent_reset():
-    agent.reset()
+    _rebuild_agents()
     return {"ok": True, "message": "会话已重置（银行数据已复原）"}
 
 
 @app.post("/api/v1/agent/tick")
 def agent_tick(req: TickRequest):
-    """系统定时器拨动（时间沙箱）：执行到期定时转账 + 触发到期事件。"""
-    return _reply(agent.tick(req.date))
+    """系统定时器拨动（时间沙箱）：执行到期定时转账 + 触发到期事件（小明视角）。"""
+    return _reply(agent_for(DEFAULT_USER).tick(req.date))
 
 
 @app.get("/api/v1/agent/status")
-def agent_status():
+def agent_status(user: str = DEFAULT_USER):
     """会话安全状态（异常熔断演示）：锁定 / 失败计数。"""
-    return agent.status()
+    return agent_for(user).status()
 
 
 @app.get("/api/v1/agent/audit")
-def agent_audit(limit: int = 50):
+def agent_audit(limit: int = 50, user: str = DEFAULT_USER):
     """审计日志（决策链路全记录）——演示/答辩面板数据源。"""
     records = [
         {
@@ -186,9 +206,25 @@ def agent_audit(limit: int = 50):
             "message": r.message,
             "decision": r.decision,  # 双引擎判定证据（规则 ⊕ JEV），审计面板可视化
         }
-        for r in agent.audit[-limit:]
+        for r in agent_for(user).audit[-limit:]
     ]
     return {"count": len(records), "records": list(reversed(records))}
+
+
+@app.get("/api/v1/agent/users")
+def agent_users():
+    """视角用户列表（前端视角切换器数据源）。"""
+    return {"users": [{"name": n, "user_id": u, "account_id": a} for n, (u, a) in VIEW_USERS.items()],
+            "default": DEFAULT_USER}
+
+
+@app.get("/api/v1/agent/pending-splits")
+def agent_pending_splits(account_id: str = "6222-0001"):
+    """我的待付 AA 分摊（对端视角数据，前端待付卡数据源）。"""
+    r = service.list_pending_splits(account_id)
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data
 
 
 @app.get("/api/v1/agent/bills")

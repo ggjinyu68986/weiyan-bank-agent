@@ -187,11 +187,12 @@ def test_cancel_then_requery_shrinks():
 def test_api_agent_shares_service_instance():
     """API 层数据一致性：Agent 与查询接口必须共用同一 BankService 实例。
     曾为真机 bug——转账在 agent 私有 store 扣款、balance 查询读另一实例，导致"转800余额不变"。"""
-    from backend.api.main import agent, service
-    assert agent.service is service
+    from backend.api.main import DEFAULT_USER, agent_for, service
+    ag = agent_for(DEFAULT_USER)
+    assert ag.service is service
     # 通过同一实例走完整转账，余额必须联动变化
-    r1 = agent.handle("给妈妈转800元")
-    r2 = agent.confirm(r1.pending_id)
+    r1 = ag.handle("给妈妈转800元")
+    r2 = ag.confirm(r1.pending_id)
     assert r2.requires == "auto"
     assert service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 - 80_000
 

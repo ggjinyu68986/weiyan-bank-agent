@@ -3,7 +3,9 @@
   "use strict";
 
   var API = "http://127.0.0.1:8000/api/v1";
+  var CURRENT_USER = "小明";   // 当前视角用户（AA 多方协作：谁登录就是谁的账户）
   var ACC = "6222-0001";
+  var VIEWS = { "小明": "6222-0001" };  // 视角用户 → 账户号（/agent/users 加载）
 
   var chat = document.getElementById("chat");
   var input = document.getElementById("input");
@@ -66,11 +68,86 @@
         if (d && d.data) d = d.data;
         document.getElementById("assetAmount").textContent = fmtNum(d.available_cents);
         document.getElementById("assetDetail").textContent =
-          "主账户 " + d.account_id + " · 总 " + fmtYuan(d.balance_cents) + " · 锁定 " + fmtNum(d.locked_cents);
+          CURRENT_USER + " · 主账户 " + d.account_id + " · 总 " + fmtYuan(d.balance_cents) +
+          " · 锁定 " + fmtNum(d.locked_cents);
       })
       .catch(function () { /* 后端未启动时保持占位 */ });
   }
   document.getElementById("btnRefresh").onclick = refreshAsset;
+
+  /* ========== 视角切换（多用户：AA 多方协作） ========== */
+  function loadViews() {
+    fetch(API + "/agent/users")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        VIEWS = {};
+        d.users.forEach(function (u) { VIEWS[u.name] = u.account_id; });
+        renderViewSwitch();
+      })
+      .catch(function () {});
+  }
+  function renderViewSwitch() {
+    var box = document.getElementById("viewSwitch");
+    if (!box) return;
+    box.innerHTML = Object.keys(VIEWS).map(function (name) {
+      return '<button class="chip' + (name === CURRENT_USER ? " on" : "") +
+        '" data-user="' + name + '">' + name + "</button>";
+    }).join("");
+    box.querySelectorAll(".chip").forEach(function (c) {
+      c.onclick = function () { switchUser(c.dataset.user); };
+    });
+  }
+  function switchUser(name) {
+    if (name === CURRENT_USER) return;
+    CURRENT_USER = name;
+    ACC = VIEWS[name] || ACC;
+    // 每个用户独立会话：切换视角即切换会话，聊天区重置
+    chat.innerHTML = "";
+    var d = document.createElement("div");
+    d.className = "bubble assistant first";
+    d.innerHTML = '<div class="meta">微言 · AI 银行助手</div><div class="text">已切换视角：' +
+      '<b>' + CURRENT_USER + "</b>（账户 " + ACC + "）。这是独立会话——" +
+      "试试「我有哪些待付的AA」或「帮我看看余额」。</div>";
+    chat.appendChild(d);
+    renderViewSwitch();
+    refreshAsset();
+    refreshSecBadge();
+    loadAudit();
+    loadPendingSplits(); // 对端视角：主动展示待付 AA 卡
+  }
+
+  /* ========== 待付 AA 卡（对端视角：看别人有没有 A 钱） ========== */
+  function loadPendingSplits() {
+    fetch(API + "/agent/pending-splits?account_id=" + ACC)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.items || !d.items.length) return;
+        var holder = document.createElement("div");
+        holder.innerHTML = renderPendingSplits(d.items);
+        if (holder.firstChild) { chat.appendChild(holder.firstChild); scrollChat(); bindPayButtons(); }
+      })
+      .catch(function () {});
+  }
+  function renderPendingSplits(items) {
+    return items.map(function (it) {
+      return '<div class="pending-card">' +
+        '<div class="aa-head">💸 待付 AA · ' + it.title +
+        ' <span class="aa-count">' + fmtNum(it.amount_cents) + " 元</span></div>" +
+        '<div class="aa-sub">发起人 ' + it.initiator_account_id + " · 已收 " +
+        it.paid_count + "/" + it.payer_count + "（人均 " + fmtNum(it.per_person_cents) + " 元）</div>" +
+        '<div class="btns"><button class="btn primary pay-aa">确认支付</button></div>' +
+        "</div>";
+    }).join("");
+  }
+  function bindPayButtons() {
+    chat.querySelectorAll(".pay-aa").forEach(function (b) {
+      b.onclick = function () {
+        var card = b.closest(".pending-card");
+        var title = card.querySelector(".aa-head").textContent.split("· ")[1] || "AA";
+        quickSend("支付" + title);
+      };
+    });
+  }
 
   /* 快捷操作：把话术发给 Agent（演示：点击按钮 = 说一句话，仍走安全门） */
   function quickSend(msg) {
@@ -92,7 +169,7 @@
   function addUser(text) {
     var d = document.createElement("div");
     d.className = "bubble user";
-    d.innerHTML = '<div class="meta">小明</div><div class="text"></div>';
+    d.innerHTML = '<div class="meta">' + CURRENT_USER + '</div><div class="text"></div>';
     d.querySelector(".text").textContent = text;
     chat.appendChild(d);
     scrollChat();
@@ -157,7 +234,7 @@
     chat.appendChild(d);
     d.querySelector(".ok").onclick = function () {
       d.querySelector(".ok").disabled = true;
-      fetch(API + "/agent/confirm", {
+      fetch(API + "/agent/confirm?user=" + encodeURIComponent(CURRENT_USER), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pending_id: reply.pending_id }),
@@ -185,7 +262,7 @@
       var code = document.getElementById("mfaCode").value.trim();
       if (!code) return;
       document.getElementById("mfaOk").disabled = true;
-      fetch(API + "/agent/authorize", {
+      fetch(API + "/agent/authorize?user=" + encodeURIComponent(CURRENT_USER), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pending_id: reply.pending_id, mfa_code: code }),
@@ -204,7 +281,7 @@
 
   /* 安全状态徽章 */
   function refreshSecBadge() {
-    fetch(API + "/agent/status")
+    fetch(API + "/agent/status?user=" + encodeURIComponent(CURRENT_USER))
       .then(function (r) { return r.json(); })
       .then(function (s) {
         var badge = document.getElementById("secBadge");
@@ -268,6 +345,12 @@
       var holder = document.createElement("div");
       holder.innerHTML = renderAABill(res.data);
       if (holder.firstChild) { chat.appendChild(holder.firstChild); scrollChat(); }
+    }
+    if (res.requires === "auto" && res.tool === "list_pending_splits" && res.data) {
+      // 对端视角：待付 AA 卡（带「确认支付」按钮）
+      var ph = document.createElement("div");
+      ph.innerHTML = renderPendingSplits(res.data.items || []);
+      if (ph.firstChild) { chat.appendChild(ph.firstChild); scrollChat(); bindPayButtons(); }
     }
     if (res.execution_id) refreshAsset();
   }
@@ -418,7 +501,7 @@
 
   /* ========== 审计 Tab ========== */
   function loadAudit() {
-    fetch(API + "/agent/audit")
+    fetch(API + "/agent/audit?user=" + encodeURIComponent(CURRENT_USER))
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var body = document.getElementById("auditBody");
@@ -479,7 +562,7 @@
     fetch(API + "/agent/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, user: CURRENT_USER }),
     }).then(function (r) { return r.json(); }).then(function (res) {
       removeTyping();
       renderReply(res);
@@ -513,6 +596,7 @@
   document.getElementById("mfaCancel").onclick = function () {};
 
   /* 初始化 */
+  loadViews();       // 视角切换器（多用户）
   refreshAsset();
   refreshSecBadge();
   loadContacts(); // 预载联系人：转账确认卡显示收款人姓名（防转错人）

@@ -19,19 +19,10 @@ import sys
 from typing import Callable
 
 from backend.agent.orchestrator import AgentOrchestrator, AgentReply
+from backend.agent.users import DEFAULT_USER, VIEW_USERS
 from backend.bank_sim.service import BankService
 
 RISK_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "🔘"}
-
-# 视角映射：名称 → (user_id, account_id)（与 seed 数据一致）
-VIEW_USERS = {
-    "小明": (1, "6222-0001"),
-    "王妈妈": (2, "6222-1001"),
-    "李太太": (3, "6222-1002"),
-    "张伟": (4, "6222-1003"),
-    "爸爸": (5, "6222-1004"),
-    "小王": (6, "6222-1005"),
-}
 
 
 def _fmt(reply: AgentReply) -> str:
@@ -81,7 +72,7 @@ def main() -> None:
     # 多用户视角：所有用户共享同一银行数据（service），各自独立的 Agent 会话
     service = BankService()
     agents: dict[str, AgentOrchestrator] = {}
-    current = "小明"
+    current = DEFAULT_USER
     for i, arg in enumerate(sys.argv):
         if arg == "--user" and i + 1 < len(sys.argv):
             current = sys.argv[i + 1].strip()
