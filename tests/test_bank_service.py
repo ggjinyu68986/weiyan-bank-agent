@@ -121,6 +121,58 @@ def test_analyze_bills_anomalies():
     assert any("高频" in x for x in reasons)
 
 
+def test_analyze_bills_anomaly_boundaries():
+    """异常识别边界：阈值临界（999 不报 / 1000 报）、固定支出与收入排除、高频 2 笔不报 / 3 笔报。"""
+    from datetime import datetime
+
+    from backend.bank_sim.models import Transaction
+
+    svc = BankService()
+    acc = "6222-0001"
+    svc.store.transactions = [
+        # 深夜 <1000：不报；深夜 =1000：报「深夜大额消费」
+        Transaction(id="t1", account_id=acc, ts=datetime(2026, 9, 3, 23, 30), kind="consume",
+                    amount_cents=-99_999, counterparty="深夜小额", category="餐饮", note=""),
+        Transaction(id="t2", account_id=acc, ts=datetime(2026, 9, 3, 23, 30), kind="consume",
+                    amount_cents=-100_000, counterparty="深夜临界", category="餐饮", note=""),
+        # 白天大额：报「大额消费」
+        Transaction(id="t3", account_id=acc, ts=datetime(2026, 9, 4, 12, 0), kind="consume",
+                    amount_cents=-100_000, counterparty="白天大额", category="购物", note=""),
+        # 固定支出（住房=房租）与转账：永不参与异常识别
+        Transaction(id="t4", account_id=acc, ts=datetime(2026, 9, 5, 12, 0), kind="consume",
+                    amount_cents=-500_000, counterparty="房租", category="住房", note=""),
+        Transaction(id="t5", account_id=acc, ts=datetime(2026, 9, 6, 12, 0), kind="transfer",
+                    amount_cents=-80_000, counterparty="妈妈", category="转账", note=""),
+        # 收入：不参与
+        Transaction(id="t6", account_id=acc, ts=datetime(2026, 9, 7, 12, 0), kind="salary",
+                    amount_cents=500_000, counterparty="工资", category="", note=""),
+        # 高频：奶茶店 2 笔不报；咖啡店 3 笔报「高频消费（本月 3 笔）」
+        Transaction(id="t7", account_id=acc, ts=datetime(2026, 9, 8, 12, 0), kind="consume",
+                    amount_cents=-1_000, counterparty="奶茶店", category="餐饮", note=""),
+        Transaction(id="t8", account_id=acc, ts=datetime(2026, 9, 9, 12, 0), kind="consume",
+                    amount_cents=-1_000, counterparty="奶茶店", category="餐饮", note=""),
+        Transaction(id="t9", account_id=acc, ts=datetime(2026, 9, 10, 12, 0), kind="consume",
+                    amount_cents=-1_000, counterparty="咖啡店", category="餐饮", note=""),
+        Transaction(id="t10", account_id=acc, ts=datetime(2026, 9, 11, 12, 0), kind="consume",
+                    amount_cents=-1_000, counterparty="咖啡店", category="餐饮", note=""),
+        Transaction(id="t11", account_id=acc, ts=datetime(2026, 9, 12, 12, 0), kind="consume",
+                    amount_cents=-1_000, counterparty="咖啡店", category="餐饮", note=""),
+    ]
+    r = svc.analyze_bills(acc, month=9)
+    names = [a["counterparty"] for a in r.data["anomalies"]]
+    reasons = {a["reason"] for a in r.data["anomalies"]}
+    # 阈值临界
+    assert "深夜临界" in names          # =1000 元深夜 → 报
+    assert "深夜小额" not in names      # <1000 元深夜 → 不报
+    assert "白天大额" in names          # 白天 =1000 元 → 大额消费
+    # 排除规则
+    assert "房租" not in names and "妈妈" not in names and "工资" not in names
+    # 高频临界
+    assert "奶茶店" not in names        # 2 笔 → 不报
+    assert "咖啡店" in names            # 3 笔 → 报
+    assert any("高频消费（本月 3 笔）" in x for x in reasons)
+
+
 # ========== 场景3：理财 ==========
 def test_buy_wealth_and_redeem():
     svc = BankService()
