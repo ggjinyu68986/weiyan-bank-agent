@@ -250,16 +250,23 @@ body {
 .panel-title { font-size: 13px; font-weight: 700; color: var(--blue-deep); margin-bottom: 8px; }
 .bill-chart { width: 100%; height: 210px; }
 .cat-list { margin-top: 8px; font-size: 12px; }
-.cat-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.cat-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px dashed var(--line); }
 .cat-row:last-child { border-bottom: none; }
-.cat-row .c-name { color: #374151; }
-.cat-row .c-amt { font-weight: 700; color: var(--blue); }
+.cat-row .c-name { color: #374151; display: flex; align-items: center; }
+.cat-row .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; flex-shrink: 0; }
+.cat-row .c-amt { font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; letter-spacing: .3px; }
 .anomaly-list { font-size: 12px; }
 .anomaly-empty { color: var(--muted); padding: 6px 0; }
-.anomaly-row { padding: 6px 0; border-bottom: 1px dashed var(--line); color: #374151; line-height: 1.5; }
+.anomaly-head {
+  display: inline-block; font-size: 11px; font-weight: 700; color: var(--red);
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 999px;
+  padding: 3px 10px; margin-bottom: 6px;
+}
+.anomaly-row { display: flex; align-items: flex-start; gap: 6px; padding: 6px 0; border-bottom: 1px dashed var(--line); color: #374151; line-height: 1.5; }
 .anomaly-row:last-child { border-bottom: none; }
 .anomaly-row b { color: #1F2937; }
-.anomaly-row .reason { color: var(--red); font-size: 11px; }
+.anomaly-row .a-ico { font-size: 12px; line-height: 1.6; }
+.anomaly-row .reason { color: var(--red); font-size: 11px; width: 100%; }
 
 /* ===== 卡片 Tab ===== */
 .card-list { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }

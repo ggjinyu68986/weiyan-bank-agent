@@ -24,6 +24,15 @@
     report_card_loss: "卡片挂失",
   };
   var RISK_BADGE = { green: "green", yellow: "yellow", red: "red", deny: "deny", chat: "chat", execute: "execute" };
+  /* 支出分类色板（与环形图扇区颜色一一对应，列表色点=饼图扇区） */
+  var CAT_COLORS = ["#1A4B8C", "#C9A227", "#0E9F6E", "#C2610C", "#64748B", "#0EA5E9"];
+  /* 异常类型 → 图标（深夜/大额🌙、异地📍、高频🔁） */
+  function anomalyIcon(reason) {
+    if (reason.indexOf("深夜") >= 0) return "🌙";
+    if (reason.indexOf("异地") >= 0) return "📍";
+    if (reason.indexOf("高频") >= 0) return "🔁";
+    return "⚠";
+  }
 
   /* 双引擎判定证据行（规则 ⊕ JEV 置信度）——确认卡 / MFA 弹层 / 审计面板共用 */
   function decisionLine(dec) {
@@ -368,8 +377,9 @@
         document.getElementById("billExpense").textContent = fmtNum(Math.abs(d.total_expense_cents)) + " 元";
 
         var cats = d.by_category.filter(function (c) { return c.amount_cents < 0; });
-        document.getElementById("billCats").innerHTML = cats.map(function (c) {
-          return '<div class="cat-row"><span class="c-name">' + c.category + "</span>" +
+        document.getElementById("billCats").innerHTML = cats.map(function (c, i) {
+          return '<div class="cat-row"><span class="c-name">' +
+            '<i class="dot" style="background:' + CAT_COLORS[i % CAT_COLORS.length] + '"></i>' + c.category + "</span>" +
             '<span class="c-amt">' + fmtNum(Math.abs(c.amount_cents)) + " 元 · " + c.count + " 笔</span></div>";
         }).join("");
 
@@ -377,19 +387,38 @@
         if (!d.anomaly_count) {
           box.innerHTML = '<div class="anomaly-empty">✅ 未识别到异常交易</div>';
         } else {
-          box.innerHTML = d.anomalies.map(function (a) {
-            return '<div class="anomaly-row"><b>' + a.counterparty + "</b> " + fmtYuan(a.amount_cents) +
-              '<div class="reason">⚠ ' + a.reason + (a.note ? " · " + a.note : "") + "</div></div>";
-          }).join("");
+          box.innerHTML = '<div class="anomaly-head">共 ' + d.anomaly_count + " 笔异常 · AI 风控识别</div>" +
+            d.anomalies.map(function (a) {
+              return '<div class="anomaly-row"><span class="a-ico">' + anomalyIcon(a.reason) + "</span><b>" +
+                a.counterparty + "</b> " + fmtYuan(a.amount_cents) +
+                '<div class="reason">' + a.reason + (a.note ? " · " + a.note : "") + "</div></div>";
+            }).join("");
         }
 
         if (window.echarts) {
           // 实例复用：切换月份/刷新时先 dispose 再重建，避免重复 init 与隐藏容器尺寸问题
           if (billChart) { billChart.dispose(); billChart = null; }
+          // 最大占比扇区高亮：外描边加深 + 直接标注「类别+占比」，一眼看到支出大头
+          var maxIdx = 0;
+          cats.forEach(function (c, i) {
+            if (Math.abs(c.amount_cents) > Math.abs(cats[maxIdx].amount_cents)) maxIdx = i;
+          });
+          var pieData = cats.map(function (c, i) {
+            return {
+              name: c.category,
+              value: Math.abs(c.amount_cents) / 100,
+              itemStyle: i === maxIdx
+                ? { borderRadius: 6, borderColor: "#0B2D5C", borderWidth: 3 }
+                : { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
+              label: i === maxIdx
+                ? { show: true, formatter: "{b} {d}%", color: "#0B2D5C", fontSize: 12, fontWeight: 700, lineHeight: 16 }
+                : { show: false },
+            };
+          });
           billChart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
           billChart.setOption({
             tooltip: { trigger: "item", formatter: "{b}: {c} 元 ({d}%)" },
-            color: ["#1A4B8C", "#C9A227", "#0E9F6E", "#C2610C", "#64748B", "#0EA5E9"],
+            color: CAT_COLORS,
             // 环形图居中放大、中心显示总支出（银行 App 账单页惯例）；不设图例避免手机端图例换行挤压
             graphic: [
               { type: "text", left: "center", top: "33%",
@@ -400,9 +429,9 @@
             ],
             series: [{
               type: "pie", radius: ["40%", "64%"], center: ["50%", "45%"],
-              itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
               label: { show: false },
-              data: cats.map(function (c) { return { name: c.category, value: Math.abs(c.amount_cents) / 100 }; }),
+              labelLine: { show: false },
+              data: pieData,
             }],
           });
         }
