@@ -384,7 +384,7 @@ class FabricatingTableLLM(MockLLM):
 
 
 def test_fabricated_balance_chat_blocked():
-    """模型直接文字输出金额+执行编号（未调工具）→ 铁证拦截，计入可疑行为。"""
+    """模型文字编造金额+执行编号（铁证）→ 查询类先重试 → 重试仍编造 → 拦截并计入可疑行为。"""
     o = AgentOrchestrator(llm=FabricatingLLM())
     r = o.handle("我的余额是多少")
     assert r.requires == "deny"
@@ -392,6 +392,30 @@ def test_fabricated_balance_chat_blocked():
     assert o.status()["suspicious_count"] == 1
     # 审计留有拦截记录
     assert any(rec.message and "疑似编造" in rec.message for rec in o.audit)
+
+
+def test_query_fabricated_bill_retries_then_tool():
+    """查询类（账单）首轮编造带执行编号的铁证文字 → 不再立即拦截，先内部重试 →
+    第二次调 analyze_bills 呈现真实账单（用户无感、不计数）。对应"账单首轮被拦截"体验修复。"""
+    class FabricatingBillThenToolLLM(MockLLM):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def complete(self, messages, tools=None):
+            self.calls += 1
+            if self.calls == 1:
+                return LLMReply(text="2026-09账单：支出7438.00元（执行编号 abc12345）")
+            return super().complete(messages, tools)
+
+    llm = FabricatingBillThenToolLLM()
+    o = AgentOrchestrator(llm=llm)
+    r = o.handle("账单")
+    assert llm.calls == 2  # 首轮 + 重试
+    assert r.requires == "auto" and r.tool == "analyze_bills"
+    assert o.status()["suspicious_count"] == 0  # 重试成功，不计可疑
+    assert not any(rec.message and "疑似编造" in rec.message for rec in o.audit)
+    assert any(rec.action == "retry" for rec in o.audit)
 
 
 def test_fabricated_table_chat_retries():

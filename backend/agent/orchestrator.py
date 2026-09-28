@@ -226,13 +226,10 @@ class AgentOrchestrator:
             text = reply.text or "（无可用操作）"
             is_operation = any(k in user_msg for k in OPERATION_HINTS)
             is_query = any(k in user_msg for k in QUERY_HINTS)
-            # 铁证编造（执行编号/账户号——系统唯一生成物，未调工具不可能合法出现）→ 双引擎校验后拦截并计入可疑行为
-            fab, jev = self._fab_check(text)
-            if fab:
-                msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
-                return self._record_suspicious(user_msg, "", {}, msg, st, jev)
-            # 查询/操作类请求模型未调工具（含疑似金额文字）→ 自动重试一次；模型文字永不透传给用户。
             if is_operation or is_query:
+                # 查询/操作类请求模型未调工具（含疑似编造文字）→ 一律先内部自动重试一次。
+                # 编造内容永不透传给用户——铁证编造也先重试（模型偶发抽风），
+                # 重试成功即呈现真实数据（用户无感）；重试后仍编造才拦截并计可疑。
                 self.history.append({
                     "role": "assistant",
                     "content": "（系统提示）你请求的业务必须调用工具完成（查询类如 query_balance/list_subscriptions，"
@@ -245,7 +242,7 @@ class AgentOrchestrator:
                 )
                 if retry.tool_calls or retry.plan:
                     return self._route_tool(retry, user_msg, st)
-                # 重试后仍编造铁证 → 双引擎校验后拦截并计入可疑行为（与熔断联动）
+                # 重试后仍未调工具：双引擎校验（规则铁证 / JEV 高置信）→ 拦截并计入可疑行为（与熔断联动）
                 fab, jev = self._fab_check(retry.text or "")
                 if fab:
                     msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
@@ -263,6 +260,11 @@ class AgentOrchestrator:
                 self._log(user_msg, "", {}, "", "chat", "", out.message)
                 self.history.append({"role": "assistant", "content": out.message})
                 return out
+            # 纯闲聊（非查询/操作）：铁证编造（执行编号/账户号——系统唯一生成物）立即拦截并计入可疑行为
+            fab, jev = self._fab_check(text)
+            if fab:
+                msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
+                return self._record_suspicious(user_msg, "", {}, msg, st, jev)
             out = AgentReply("chat", text)
             self._log(user_msg, "", {}, "", "chat", "", out.message)
             self.history.append({"role": "assistant", "content": out.message})
