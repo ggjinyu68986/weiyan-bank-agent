@@ -411,7 +411,8 @@
                 ? { borderRadius: 6, borderColor: "#0B2D5C", borderWidth: 3 }
                 : { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
               label: i === maxIdx
-                ? { show: true, formatter: "{b} {d}%", color: "#0B2D5C", fontSize: 12, fontWeight: 700, lineHeight: 16 }
+                ? { show: true, position: "center", formatter: "{d}%", color: "#fff",
+                    fontSize: 17, fontWeight: 800, lineHeight: 20, textShadowBlur: 4, textShadowColor: "rgba(11,45,92,.5)" }
                 : { show: false },
             };
           });
