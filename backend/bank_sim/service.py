@@ -94,8 +94,6 @@ class BankService:
             if t.ts.hour >= 23 or t.ts.hour < 5:
                 if amt >= DEEP_NIGHT_MIN:
                     reasons.append("深夜大额消费")
-                elif amt >= 5000:
-                    reasons.append("深夜消费")
             if amt >= LARGE_MIN and not reasons:
                 reasons.append("大额消费")
             if "异地" in t.note:
