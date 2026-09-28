@@ -65,6 +65,19 @@ def test_cancel_subscription_confirm(reg):
     assert decide(reg, "cancel_subscription").action == "confirm"
 
 
+def test_split_bill_amount_from_total_cents(reg):
+    """AA 拆分的金额字段是 total_cents：确认文案必须显示真实金额而非 0.00。"""
+    d = decide(reg, "split_bill", {"total_cents": 60_000}, {"today_transfer_cents": 0})
+    assert d.action == "confirm"
+    assert "600.00 元" in d.reason
+
+
+def test_split_bill_over_limit_upgrades(reg):
+    """AA 拆分 1200 元 > 1000 日限额 → 同样升级强验证（黄→红）。"""
+    d = decide(reg, "split_bill", {"total_cents": 120_000}, {"today_transfer_cents": 0})
+    assert d.action == "mfa"
+
+
 def test_registry_covers_six_scenarios(reg):
     """6 大场景的关键操作必须全部注册（缺一个=场景没法跑）。"""
     required = [

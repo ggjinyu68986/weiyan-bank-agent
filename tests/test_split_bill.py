@@ -72,3 +72,37 @@ def test_split_bill_status_progress(svc):
 def test_split_bill_requires_at_least_two(svc):
     r = svc.split_bill("6222-0001", 60_000, 1, "AA")
     assert not r.ok and "至少 2 人" in r.message
+
+
+def test_split_bill_named_payers_by_name(svc):
+    """用户点名收款人（姓名）→ 走联系人簿解析为账户，而不是默认前 N-1 位。"""
+    r = svc.split_bill("6222-0001", 60_000, 3, "聚餐AA", payer_accounts=["小王", "张伟"])
+    assert r.ok
+    ids = [p["account_id"] for p in r.data["payers"]]
+    assert ids == ["6222-1005", "6222-1003"]  # 小王、张伟（非默认的妈妈/老婆）
+    # 进度卡片数据源一致
+    st = svc.split_bill_status("6222-0001")
+    assert [p["account_id"] for p in st.data["payers"]] == ids
+
+
+def test_split_bill_named_payers_by_phone_and_account(svc):
+    """点名收款人支持手机号/账户号/别名混用。"""
+    r = svc.split_bill("6222-0001", 60_000, 3, "AA", payer_accounts=["13900139000", "6222-1003"])
+    assert r.ok
+    ids = [p["account_id"] for p in r.data["payers"]]
+    assert ids == ["6222-1001", "6222-1003"]  # 手机号=妈妈、账户号=张伟
+
+
+def test_split_bill_unknown_payer_rejected(svc):
+    """名单里有无法识别的人 → 整单拒绝并告知，不猜不默认。"""
+    r = svc.split_bill("6222-0001", 60_000, 3, "AA", payer_accounts=["不认识的人", "张伟"])
+    assert not r.ok and "收款人不存在或无法识别" in r.message
+
+
+def test_split_bill_filters_self_and_duplicates(svc):
+    """名单包含发起人自己 / 重复账户 → 自动过滤，剩余有效名单照常收款。"""
+    r = svc.split_bill("6222-0001", 60_000, 3, "AA",
+                       payer_accounts=["6222-0001", "小王", "6222-1005", "张伟"])
+    assert r.ok
+    ids = [p["account_id"] for p in r.data["payers"]]
+    assert ids == ["6222-1005", "6222-1003"]  # 自己过滤、小王去重、张伟保留

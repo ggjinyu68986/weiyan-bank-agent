@@ -248,8 +248,18 @@ class BankService:
         rem = total_cents - per * people_count
         payers = []
         if payer_accounts:
+            # 用户点名的收款人：支持账户号/联系人姓名/别名/手机号，逐人解析；找不到 -> 拒绝并告知
             for acc in payer_accounts:
-                payers.append(SplitPayer(account_id=acc, amount_cents=per))
+                acct = self._resolve_account(acc)
+                if acct is None:
+                    return OpResult.error("PAYER_NOT_FOUND", "收款人不存在或无法识别：" + acc)
+                if acct.id == account_id:  # 防把发起人自己列为收款人
+                    continue
+                if any(p.account_id == acct.id for p in payers):  # 防重复
+                    continue
+                payers.append(SplitPayer(account_id=acct.id, amount_cents=per))
+            if not payers:
+                return OpResult.error("INVALID_PAYERS", "未识别到有效的收款人名单，请重新描述参与人")
         else:
             # 缺省收款对象：联系人簿前 N-1 位（发起人自己也分摊一份，只向别人收）
             cs = [c for c in self.store.contacts.values() if c.user_id == 1][: people_count - 1]

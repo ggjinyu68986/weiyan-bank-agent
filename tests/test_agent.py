@@ -120,6 +120,21 @@ def test_split_bill_via_agent():
     assert o.confirm(r.pending_id).requires == "auto"
 
 
+def test_split_bill_named_payers_via_agent():
+    """AA 点名收款人（赛题场景1）：'和小王张伟聚餐600元AA' → payer_accounts 传点名账户，而非默认前 2 位。"""
+    o = make()
+    r = o.handle("和小王，张伟聚餐 一共600元 帮我AA")
+    assert r.requires == "confirm"
+    assert r.params["people_count"] == 3  # 自己 + 小王 + 张伟
+    assert r.params["payer_accounts"] == ["6222-1005", "6222-1003"]  # 按消息出现顺序
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto"
+    assert "6222-1005" in out.message and "6222-1003" in out.message
+    # 进度数据源：收款对象是小王、张伟（而非默认的妈妈/老婆）
+    st = o.service.split_bill_status("6222-0001")
+    assert [p["account_id"] for p in st.data["payers"]] == ["6222-1005", "6222-1003"]
+
+
 def test_cancel_subscription_via_agent():
     """取消订阅（黄级确认）。"""
     o = make()

@@ -46,6 +46,9 @@ SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户�
    用户说"挂失/改密码/冻结"时直接调用对应工具（report_card_loss/change_password/freeze_card），不要只回复文字或先查列表。
    用户说"聚餐/出行费用平摊/AA（如600元3个人AA）"时直接调用 split_bill(account_id="6222-0001",
    total_cents=金额换算成分, people_count=人数, title=事由)，不要先文字复述每人金额；
+   用户点名了参与人（如"和小王张伟聚餐AA""和小王、张伟吃饭600"）时，payer_accounts 传对方的账户号或姓名列表
+   （如 payer_accounts=["6222-1005","6222-1003"] 或 ["小王","张伟"]），people_count=点名人数+1（含自己）；
+   未点名参与人时 payer_accounts 不填，由系统默认从联系人簿选取前 N-1 位。
    AA 收款单生成后，用户说"XX已付款/付AA/AA收款/收款进度"时：查进度用 split_bill_status(account_id="6222-0001")；
    收款入账用 pay_split_bill(account_id="6222-0001", payer_account_id=XX的账户号或手机号)（bill_id 不填，系统自动定位最近未结清收款单）。
 5. 用户提到"我爱人生日"：先调用 lock_funds(account_id="6222-0001", amount_cents=100000, note="爱人生日预算")，
@@ -103,7 +106,7 @@ def build_tool_schemas() -> list[dict]:
             "total_cents": {"type": "integer", "description": "总金额，分"},
             "people_count": {"type": "integer", "description": "参与人数（≥2）"},
             "title": {"type": "string", "description": "收款事由，如：聚餐AA"},
-            "payer_accounts": {"type": "array", "items": {"type": "string"}, "description": "收款对象账户（可空，缺省用联系人）"},
+            "payer_accounts": {"type": "array", "items": {"type": "string"}, "description": "点名收款对象：账户号或联系人姓名（可空，缺省系统从联系人簿选取前N-1位）"},
         }, ["account_id", "total_cents", "people_count"]),
         s("split_bill_status", "AA 收款进度查询（已收/待付）", {
             "account_id": {"type": "string"},

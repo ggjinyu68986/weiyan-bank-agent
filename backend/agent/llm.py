@@ -133,11 +133,19 @@ class MockLLM(BaseLLM):
                 return self._tool("pay_split_bill", {
                     "account_id": USER_ACCOUNT, "payer_account_id": self._pick_to(text),
                 })
-            people = int(re.search(r"(\d+)\s*人", text).group(1)) if re.search(r"(\d+)\s*人", text) else 3
-            return self._tool("split_bill", {
+            explicit = re.search(r"(\d+)\s*人", text)
+            people = int(explicit.group(1)) if explicit else 0
+            # 点名的收款人（按消息出现顺序；未点名则空，由系统默认联系人簿前 N-1 位）
+            payers = self._pick_payers(text)
+            if not explicit:
+                people = len(payers) + 1 if payers else 3
+            params = {
                 "account_id": USER_ACCOUNT, "total_cents": _extract_yuan(text) * 100,
                 "people_count": people, "title": "聚餐AA",
-            })
+            }
+            if payers:
+                params["payer_accounts"] = payers
+            return self._tool("split_bill", params)
 
         # ---- 场景3 理财 ----
         if "理财" in text and ("买" in text or "申购" in text):
@@ -224,6 +232,18 @@ class MockLLM(BaseLLM):
             if name in text:
                 return acc
         return USER_ACCOUNT
+
+    def _pick_payers(self, text) -> list[str]:
+        """AA 点名收款人解析：按消息中姓名/别名出现的先后顺序，返回去重账户号列表。"""
+        hits = []
+        for name, acc in (
+            ("妈妈", "6222-1001"), ("老婆", "6222-1002"), ("爱人", "6222-1002"),
+            ("张伟", "6222-1003"), ("爸爸", "6222-1004"), ("小王", "6222-1005"),
+        ):
+            if name in text and acc not in [a for _, a in hits]:
+                hits.append((text.index(name), acc))
+        hits.sort(key=lambda x: x[0])
+        return [acc for _, acc in hits]
 
 
 def _extract_yuan(text: str) -> int:

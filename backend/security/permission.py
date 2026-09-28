@@ -29,7 +29,12 @@ class PermissionDecision:
 
 
 def _amount_cents(params: dict) -> int:
-    return params.get("amount_cents") or 0
+    """从工具参数中提取"金额"（兼容各工具字段命名：转账 amount_cents、AA 拆分 total_cents、额度调整 new_limit_cents）。"""
+    for k in ("amount_cents", "total_cents", "new_limit_cents"):
+        v = params.get(k)
+        if v:
+            return int(v)
+    return 0
 
 
 def decide(
