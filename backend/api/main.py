@@ -135,6 +135,7 @@ def _reply(r: AgentReply) -> dict:
         "params": r.params,
         "pending_id": r.pending_id,
         "data": r.data,  # 工具返回的结构化数据（前端可视化：AA 收款进度卡片等）
+        "decision": r.decision,  # 双引擎判定证据（规则 ⊕ JEV 置信度，前端展示）
     }
 
 
@@ -183,6 +184,7 @@ def agent_audit(limit: int = 50):
             "action": r.action,
             "execution_id": r.execution_id,
             "message": r.message,
+            "decision": r.decision,  # 双引擎判定证据（规则 ⊕ JEV），审计面板可视化
         }
         for r in agent.audit[-limit:]
     ]

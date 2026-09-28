@@ -25,6 +25,7 @@ from backend.security.permission import (
 from .llm import BaseLLM, build_llm
 from .prompts import SYSTEM_PROMPT, build_tool_schemas
 from .timeexpr import resolve as resolve_time_expr
+from .decision import ACTION_TO_GRADE, DecisionEngine, Verdict, _merge_grade
 
 _WEEK_CN = "一二三四五六日"
 
@@ -128,6 +129,7 @@ class AgentReply:
     params: dict = field(default_factory=dict)
     pending_id: str = ""
     data: dict = field(default_factory=dict)  # 工具返回的结构化数据（前端可视化卡片，如 AA 进度）
+    decision: dict = field(default_factory=dict)  # 双引擎判定证据（规则 ⊕ JEV 置信度，前端展示）
 
 
 @dataclass
@@ -140,6 +142,7 @@ class AuditRecord:
     action: str
     execution_id: str
     message: str
+    decision: dict = field(default_factory=dict)  # 该次判定的规则⊕JEV 证据（答辩可视化）
 
 
 # 异常熔断阈值（赛题：连续失败或可疑行为触发安全锁定）
@@ -148,9 +151,11 @@ SUSPICIOUS_LIMIT = 3  # 连续注入/越权试探
 
 
 class AgentOrchestrator:
-    def __init__(self, llm: BaseLLM | None = None, service: BankService | None = None):
+    def __init__(self, llm: BaseLLM | None = None, service: BankService | None = None,
+                 decision: DecisionEngine | None = None):
         self.llm = llm or build_llm()
         self.service = service or BankService()
+        self.decision = decision or DecisionEngine()  # 双引擎决策层（off/mock/live）
         self.registry = load_registry()
         self.tools = build_tool_schemas()
         self.history: list[dict] = []
@@ -221,10 +226,11 @@ class AgentOrchestrator:
             text = reply.text or "（无可用操作）"
             is_operation = any(k in user_msg for k in OPERATION_HINTS)
             is_query = any(k in user_msg for k in QUERY_HINTS)
-            # 铁证编造（执行编号/账户号——系统唯一生成物，未调工具不可能合法出现）→ 立即拦截并计入可疑行为
-            if _looks_fabricated(text):
+            # 铁证编造（执行编号/账户号——系统唯一生成物，未调工具不可能合法出现）→ 双引擎校验后拦截并计入可疑行为
+            fab, jev = self._fab_check(text)
+            if fab:
                 msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
-                return self._record_suspicious(user_msg, "", {}, msg, st)
+                return self._record_suspicious(user_msg, "", {}, msg, st, jev)
             # 查询/操作类请求模型未调工具（含疑似金额文字）→ 自动重试一次；模型文字永不透传给用户。
             if is_operation or is_query:
                 self.history.append({
@@ -239,10 +245,11 @@ class AgentOrchestrator:
                 )
                 if retry.tool_calls or retry.plan:
                     return self._route_tool(retry, user_msg, st)
-                # 重试后仍编造铁证 → 拦截并计入可疑行为（与熔断联动）
-                if _looks_fabricated(retry.text or ""):
+                # 重试后仍编造铁证 → 双引擎校验后拦截并计入可疑行为（与熔断联动）
+                fab, jev = self._fab_check(retry.text or "")
+                if fab:
                     msg = "系统拦截：检测到未通过工具执行的账户信息或交易结果（疑似编造）。请重新描述需求，我将通过工具核实办理。"
-                    return self._record_suspicious(user_msg, "", {}, msg, st)
+                    return self._record_suspicious(user_msg, "", {}, msg, st, jev)
                 if is_operation:
                     out = AgentReply(
                         "chat",
@@ -272,9 +279,11 @@ class AgentOrchestrator:
 
         tc = reply.tool_calls[0]
         tool, params = tc["name"], tc.get("arguments", {})
-        decision = decide(self.registry, tool, params, st)
+        decision, jev = self._decide(tool, params, st)
         risk = decision.spec.get("risk", "?") if decision.spec else "?"
-        self._log(user_msg, tool, params, risk, decision.action, "", decision.reason)
+        route = self.decision.route_check(user_msg, tool, risk)  # 路由校验（记录型）
+        self._log(user_msg, tool, params, risk, decision.action, "", decision.reason,
+                  {"grade": jev.to_dict() if jev else {}, "route": route.to_dict() if route.engine != "rule" else {}})
 
         if decision.action == ACTION_AUTO:
             return self._execute(tool, params, user_msg, decision.reason)
@@ -284,7 +293,8 @@ class AgentOrchestrator:
             self._pending[pid] = {"kind": "single", "tool": tool, "params": params, "action": decision.action}
             need = "用户确认" if decision.action == ACTION_CONFIRM else "多因子强验证"
             self.history.append({"role": "assistant", "content": f"需要{need}：{decision.reason}"})
-            return AgentReply(decision.action, decision.reason, tool=tool, params=params, pending_id=pid)
+            return AgentReply(decision.action, decision.reason, tool=tool, params=params,
+                              pending_id=pid, decision={"grade": jev.to_dict() if jev else {}})
 
         # deny（未注册工具/注入试探）→ 累计可疑行为，触发熔断
         return self._record_suspicious(user_msg, tool, params, decision.reason, st)
@@ -300,9 +310,10 @@ class AgentOrchestrator:
         while i < len(plan):
             node = plan[i]
             tool, params = node["tool"], node.get("params", {})
-            decision = decide(self.registry, tool, params, user_state)
+            decision, jev = self._decide(tool, params, user_state)
             risk = decision.spec.get("risk", "?") if decision.spec else "?"
-            self._log(f"(DAG#{i + 1}){tool}", tool, params, risk, decision.action, "", decision.reason)
+            self._log(f"(DAG#{i + 1}){tool}", tool, params, risk, decision.action, "", decision.reason,
+                      {"grade": jev.to_dict() if jev else {}})
             if decision.action == ACTION_AUTO:
                 r = self._execute(tool, params, f"(DAG#{i + 1}){user_msg}", decision.reason)
                 if r.requires != "auto":
@@ -342,9 +353,10 @@ class AgentOrchestrator:
             return AgentReply("deny", "无效的确认凭证，请重新发起操作")
         if p["kind"] == "plan":
             return self._plan_resume(p, user_state or self.user_state)
-        decision = decide(self.registry, p["tool"], p["params"], user_state or self.user_state)
+        decision, jev = self._decide(p["tool"], p["params"], user_state or self.user_state)
         if decision.action != ACTION_CONFIRM:
-            return AgentReply(decision.action, decision.reason, tool=p["tool"], params=p["params"])
+            return AgentReply(decision.action, decision.reason, tool=p["tool"], params=p["params"],
+                              decision={"grade": jev.to_dict() if jev else {}})
         return self._execute(p["tool"], p["params"], "(用户确认后执行)", decision.reason)
 
     def authorize(self, pending_id: str, mfa_code: str = "123456") -> AgentReply:
@@ -364,15 +376,15 @@ class AgentOrchestrator:
             return self._plan_resume(p, self.user_state, mfa_ok=True)
         return self._execute(p["tool"], p["params"], "(强验证通过后执行)", "多因子验证通过")
 
-    def _record_suspicious(self, user_msg, tool, params, reason, st) -> AgentReply:
+    def _record_suspicious(self, user_msg, tool, params, reason, st, decision=None) -> AgentReply:
         """注入/编造试探累计：每次落审计，达到阈值触发安全锁定。"""
         st["suspicious_count"] += 1
-        self._log(user_msg, tool, params, "red", "suspicious", "", reason)
+        self._log(user_msg, tool, params, "red", "suspicious", "", reason, decision)
         out = AgentReply("deny", reason, tool=tool, params=params)
         if st["suspicious_count"] >= SUSPICIOUS_LIMIT:
             st["locked"] = True
             out.message = f"{reason}；已累计 {SUSPICIOUS_LIMIT} 次可疑行为，账户已安全锁定"
-            self._log(user_msg, tool, params, "red", "lockout", "", out.message)
+            self._log(user_msg, tool, params, "red", "lockout", "", out.message, decision)
         self.history.append({"role": "assistant", "content": out.message})
         return out
 
@@ -380,12 +392,13 @@ class AgentOrchestrator:
         """DAG 节点确认/强验证通过后：执行该节点并继续推进计划。"""
         plan, idx = p["plan"], p["idx"]
         tool, params = p["tool"], p["params"]
-        decision = decide(self.registry, tool, params, user_state)
+        decision, jev = self._decide(tool, params, user_state)
         allowed = decision.action in (ACTION_CONFIRM, ACTION_MFA)
         if mfa_ok and decision.action != ACTION_MFA:
             return AgentReply("deny", "该节点无需强验证，操作未执行", tool=tool, params=params)
         if not allowed:
-            return AgentReply(decision.action, decision.reason, tool=tool, params=params)
+            return AgentReply(decision.action, decision.reason, tool=tool, params=params,
+                              decision={"grade": jev.to_dict() if jev else {}})
         r = self._execute(tool, params, f"(DAG#{idx + 1} 确认后执行)", decision.reason)
         if r.requires != "auto":
             return r
@@ -412,9 +425,35 @@ class AgentOrchestrator:
         self.history.append({"role": "assistant", "content": out.message})
         return out
 
-    def _log(self, user_msg, tool, params, risk, action, eid, message):
+    def _decide(self, tool: str, params: dict, st: dict):
+        """权限门：确定性规则判定 → JEV 双引擎保守合并。
+        规则是底线：JEV 只能更严格（live 且置信度达标才升级），绝不降级/放行。"""
+        decision = decide(self.registry, tool, params, st)
+        if decision.action not in (ACTION_AUTO, ACTION_CONFIRM, ACTION_MFA):
+            return decision, Verdict("red", 1.0, "rule")
+        grade = ACTION_TO_GRADE[decision.action]
+        jev = self.decision.grade_operation(tool, params, grade)
+        merged = _merge_grade(grade, jev)
+        if merged.value != grade:  # 仅 live 高置信时发生（mock 镜像不升级）
+            if merged.value == "yellow":
+                decision.action = ACTION_CONFIRM
+            elif merged.value == "red":
+                decision.action = ACTION_MFA
+            decision.reason = f"{decision.reason}（JEV 建议更严格：{merged.value}，置信 {merged.confidence:.0%}，已保守合并）"
+            jev = merged
+        return decision, jev
+
+    def _fab_check(self, text: str) -> tuple[bool, Verdict]:
+        """幻觉校验双引擎：规则铁证为硬底线，JEV 概率层在置信达标时追加拦截。"""
+        rule = _looks_fabricated(text)
+        jev = self.decision.fabrication_check(text, rule)
+        flag = rule or (jev.value == "fabricated" and jev.confidence >= self.decision.threshold)
+        return flag, jev
+
+    def _log(self, user_msg, tool, params, risk, action, eid, message, decision=None):
         self.audit.append(
-            AuditRecord(datetime.now(), user_msg, tool, dict(params), risk, action, eid, message)
+            AuditRecord(datetime.now(), user_msg, tool, dict(params), risk, action, eid, message,
+                        decision.to_dict() if isinstance(decision, Verdict) else (decision or {}))
         )
 
 

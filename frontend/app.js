@@ -23,6 +23,21 @@
   };
   var RISK_BADGE = { green: "green", yellow: "yellow", red: "red", deny: "deny", chat: "chat", execute: "execute" };
 
+  /* 双引擎判定证据行（规则 ⊕ JEV 置信度）——确认卡 / MFA 弹层 / 审计面板共用 */
+  function decisionLine(dec) {
+    if (!dec || !dec.grade) return "";
+    var g = dec.grade;
+    if (g.engine === "rule") return "";
+    var cn = { green: "绿", yellow: "黄", red: "红" }[g.value] || g.value;
+    var label = "规则" + cn + " ⊕ JEV " + cn + " · 置信 " + Math.round(g.confidence * 100) + "%";
+    return '<div class="dec-line">双引擎判定：' + label + "</div>";
+  }
+  function routeLine(dec) {
+    if (!dec || !dec.route || dec.route.value !== "mismatch") return "";
+    return '<div class="dec-line warn">⚠ JEV 路由校验：意图与所选工具类别不一致（置信 ' +
+      Math.round(dec.route.confidence * 100) + "%）</div>";
+  }
+
   function fmtYuan(cents) { return (cents / 100).toFixed(2) + " 元"; }
   function fmtNum(cents) { return (cents / 100).toFixed(2); }
   function scrollChat() { chat.scrollTop = chat.scrollHeight; }
@@ -136,6 +151,7 @@
     d.className = "confirm-card";
     d.innerHTML =
       '<div class="tag">🟡 黄级操作 · 需要你确认</div>' +
+      decisionLine(reply.decision) +
       '<div class="row">' + desc.join("</div><div class='row'>") + "</div>" +
       '<div class="btns"><button class="btn ok">确认执行</button><button class="btn no">取消</button></div>';
     chat.appendChild(d);
@@ -160,7 +176,8 @@
     document.getElementById("mfaDesc").innerHTML =
       "操作：" + (TOOL_NAMES[reply.tool] || reply.tool) +
       (reply.params && reply.params.amount_cents ? " · " + fmtYuan(reply.params.amount_cents) : "") +
-      "<br>" + reply.message;
+      "<br>" + reply.message +
+      (decisionLine(reply.decision) ? "<br>" + decisionLine(reply.decision) : "");
     mask.classList.remove("hidden");
     document.getElementById("mfaCode").value = "";
     document.getElementById("mfaCode").focus();
@@ -414,7 +431,9 @@
               '<div class="a-time">' + rec.ts.replace("T", " ").slice(0, 19) + "</div>" +
               '<span class="a-tool">' + (rec.tool || "（对话）") + "</span>" +
               '<span class="badge ' + badge + '">' + (rec.risk || rec.action) + "</span>" +
-              "<div>" + rec.message + "</div></div>";
+              "<div>" + rec.message + "</div>" +
+              decisionLine(rec.decision) + routeLine(rec.decision) +
+              "</div>";
           }).join("");
         }
       });

@@ -146,6 +146,14 @@ body {
 .confirm-card .btns { display: flex; gap: 8px; margin-top: 10px; }
 .confirm-card .btns .btn.ok { background: var(--gold); border-color: var(--gold); color: #fff; }
 
+/* 双引擎判定证据行（规则 ⊕ JEV 置信度）——确认卡 / MFA / 审计共用 */
+.dec-line {
+  display: inline-block; font-size: 10.5px; color: var(--blue);
+  background: var(--blue-soft); border-radius: 6px;
+  padding: 2px 7px; margin: 4px 0 2px; font-weight: 600;
+}
+.dec-line.warn { color: #B45309; background: #FFF3E0; }
+
 /* AA 收款进度卡片（发起/入账/查询后自动渲染） */
 .aa-card {
   align-self: flex-start; max-width: 88%; min-width: 240px;

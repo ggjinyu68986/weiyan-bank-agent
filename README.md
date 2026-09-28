@@ -110,6 +110,7 @@ docker logs -f weiyan-agent    # 审计/错误走 stdout，可监控
 - **Python 3.12 + FastAPI + uvicorn**（HTTP 能力层与对话 API）
 - **LLM**：DeepSeek 默认（OpenAI 兼容 `https://api.deepseek.com/v1`），Provider 可插拔；无 Key 自动回退确定性 MockLLM
 - **编排**：自研轻量层（<1000 行，不用 LangChain/LangGraph）——意图→DAG→权限门→执行→审计，安全全可控
+- **双引擎决策层（JEV）**：System One 决策模型（不生成文本、只返回结构化判定+置信度）与确定性规则并行判定——权限分级/幻觉校验/路由校验取"保守合并"，`off/mock/live` 三态可插拔（默认 mock 离线演示，live 需 OpenRouter Key）
 - **数据**：内存 Store + Repository 抽象（生产可换 SQLite/MySQL）
 - **前端**：手机银行风格（APP 形态，五 Tab：对话/账单/卡片/联系人/审计），纯 HTML/JS + ECharts CDN，`file://` 直接打开
 - **沙箱**：不执行 LLM 生成的任意代码（工具白名单=逻辑沙箱）+ 进程级兜底 `security/sandbox.py`
@@ -125,6 +126,7 @@ docker logs -f weiyan-agent    # 审计/错误走 stdout，可监控
 7. **时间沙箱**：`tick` 接口可模拟任意日期，完整演示定时转账与事件联动
 8. **确定性时间解析**：定时转账的日期换算**不依赖 LLM 计算日期**（日期是幻觉高发区）——模型只输出相对时间意图（`明天`/`下周X`/`一分钟后`），由 `backend/agent/timeexpr.py` 确定性换算成具体日期（"模型出意图、系统出事实"，答辩安全点）
 9. **沙箱双轨**：逻辑沙箱（工具白名单）+ 进程沙箱 + Docker 容器沙箱
+10. **双引擎判定（JEV）**：权限分级/幻觉校验/路由校验 = 确定性规则 ⊕ JEV 决策模型（System One，结构化判定+置信度，70-500ms）。规则是底线、JEV 只升不降；`mock` 模式离线演示"双引擎+置信度"，`live` 模式真实调用（无 Key/断网自动回退）。判定结果写入审计与前端（确认卡/强验证/审计面板均显示「规则黄 ⊕ JEV 黄 · 置信 93%」）
 
 ## 环境变量（.env）
 
@@ -132,6 +134,11 @@ docker logs -f weiyan-agent    # 审计/错误走 stdout，可监控
 LLM_API_KEY=sk-xxx              # OpenAI 兼容 Key（DeepSeek/豆包/GPT 通用）
 LLM_BASE_URL=https://api.deepseek.com/v1
 LLM_MODEL=deepseek-chat
+
+JEV_MODE=mock                   # off=纯规则(评测基线) | mock=伪JEV+置信度(默认,离线) | live=真实JEV API
+JEV_API_KEY=                    # live 模式必填（OpenRouter Key）；缺省/断网自动回退 mock
+JEV_BASE_URL=https://openrouter.ai/api/alpha/decisions
+JEV_MODEL=typesafe/jev-1.13
 ```
 
 ## License
