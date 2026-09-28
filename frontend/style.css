@@ -233,6 +233,7 @@ body {
 .primary-btn { background: var(--blue); color: #fff; }
 .tab-head { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .tab-title { font-size: 17px; font-weight: 800; color: var(--blue-deep); }
+.bill-switch { display: flex; gap: 6px; }
 
 /* ===== 账单 Tab ===== */
 .month-switch { display: flex; align-items: center; gap: 8px; }

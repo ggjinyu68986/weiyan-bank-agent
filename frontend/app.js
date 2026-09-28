@@ -61,7 +61,7 @@
       document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
       t.classList.add("active");
       document.getElementById("tab-" + t.dataset.tab).classList.add("active");
-      if (t.dataset.tab === "bills") loadBills();
+      if (t.dataset.tab === "bills") { if (billMode === "year") loadAnnual(); else loadBills(); }
       if (t.dataset.tab === "cards") loadCards();
       if (t.dataset.tab === "contacts") loadContacts();
       if (t.dataset.tab === "audit") loadAudit();
@@ -343,6 +343,17 @@
       addAssistant("已生成账单图表，可点击底部「账单」查看可视化分析。");
       loadBills();
     }
+    if (res.requires === "auto" && res.tool === "annual_report") {
+      addAssistant("已生成年度账单报告，可点击底部「账单」查看年度收支趋势。");
+      // 预切年度视图状态：用户点「账单」Tab 即加载年度报告
+      billMode = "year";
+      document.querySelectorAll("#tab-bills .bill-switch .chip").forEach(function (c) {
+        c.classList.toggle("on", c.dataset.billmode === "year");
+      });
+      document.querySelectorAll("#tab-bills .month-switch").forEach(function (x) {
+        x.style.display = "none";
+      });
+    }
     if (res.tool === "apply_virtual_card" || res.tool === "freeze_card" || res.tool === "unfreeze_card" ||
         res.tool === "report_card_loss" || res.tool === "unlock_card" || res.tool === "adjust_card_limit") {
       loadCards(); // 卡片页保持同步
@@ -367,6 +378,69 @@
   /* ========== 账单 Tab ========== */
   var billMonth = null; // null = 当前月（后端默认）
   var billChart = null; // ECharts 实例复用（切换月份/刷新时先 dispose 再重建）
+  var billMode = "month"; // month 月度视图 / year 年度视图
+  function switchBillMode(mode) {
+    billMode = mode;
+    document.querySelectorAll("#tab-bills .bill-switch .chip").forEach(function (c) {
+      c.classList.toggle("on", c.dataset.billmode === mode);
+    });
+    document.querySelectorAll("#tab-bills .month-switch").forEach(function (x) {
+      x.style.display = mode === "month" ? "flex" : "none";
+    });
+    if (mode === "year") loadAnnual(); else loadBills();
+  }
+  document.querySelectorAll("#tab-bills .bill-switch .chip").forEach(function (c) {
+    c.onclick = function () { switchBillMode(c.dataset.billmode); };
+  });
+  /* 年度账单报告视图：月度收支趋势柱状图 + 年度汇总 + 分类 TOP（赛题场景2：年度账单报告） */
+  function loadAnnual() {
+    fetch(API + "/agent/annual?account_id=" + ACC)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        document.getElementById("billPeriod").textContent = d.year + "年度";
+        document.getElementById("billIncome").textContent = "+" + fmtNum(d.total_income_cents) + " 元";
+        document.getElementById("billExpense").textContent = fmtNum(Math.abs(d.total_expense_cents)) + " 元";
+
+        var insight = document.getElementById("billInsight");
+        if (insight) {
+          var top = d.top_categories[0];
+          insight.innerHTML = "📊 <b>" + d.year + " 年度账单</b>：共 " + d.month_count + " 个月有交易，全年支出 <b>" +
+            fmtNum(Math.abs(d.total_expense_cents)) + " 元</b>" +
+            (top ? "，占比最高分类：<b>" + top.category + "</b>" : "") + " · 点击月份可看当月明细";
+        }
+        document.getElementById("billCats").innerHTML = d.top_categories.map(function (c, i) {
+          return '<div class="cat-row"><span class="c-name"><b class="idx">' + (i + 1) + ".</b>" +
+            '<i class="dot" style="background:' + CAT_COLORS[i % CAT_COLORS.length] + '"></i>' + c.category + "</span>" +
+            '<span class="c-pct">' + (d.total_expense_cents ? Math.round(Math.abs(c.amount_cents) / Math.abs(d.total_expense_cents) * 100) + "%" : "") + "</span>" +
+            '<span class="c-amt">' + fmtNum(Math.abs(c.amount_cents)) + " 元</span></div>";
+        }).join("");
+        document.getElementById("billAnomalies").innerHTML =
+          '<div class="anomaly-empty">年度报告 · 切回「月度」可展开每月异常交易识别</div>';
+
+        if (window.echarts) {
+          if (billChart) { billChart.dispose(); billChart = null; }
+          billChart = echarts.init(document.getElementById("billChart"), null, { renderer: "svg" });
+          billChart.setOption({
+            tooltip: { trigger: "axis", axisPointer: { type: "shadow" },
+              formatter: function (ps) {
+                return ps.map(function (p) { return p.seriesName + "：" + p.value.toFixed(0) + " 元"; }).join("<br>");
+              } },
+            legend: { data: ["收入", "支出"], bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 10.5, color: "#6B7280" } },
+            grid: { left: 34, right: 8, top: 18, bottom: 30 },
+            xAxis: { type: "category", data: d.months.map(function (m) { return m.month + "月"; }),
+              axisLine: { lineStyle: { color: "#E4E9F0" } }, axisLabel: { fontSize: 10, color: "#6B7280" } },
+            yAxis: { type: "value", splitLine: { lineStyle: { color: "#EEF2F7" } },
+              axisLabel: { fontSize: 10, color: "#6B7280", formatter: function (v) { return (v / 100).toFixed(0) + "k"; } } },
+            series: [
+              { name: "收入", type: "bar", data: d.months.map(function (m) { return m.income_cents / 100; }),
+                itemStyle: { color: "#0E9F6E", borderRadius: [3, 3, 0, 0] } },
+              { name: "支出", type: "bar", data: d.months.map(function (m) { return Math.abs(m.expense_cents) / 100; }),
+                itemStyle: { color: "#C2610C", borderRadius: [3, 3, 0, 0] } },
+            ],
+          });
+        }
+      });
+  }
   function loadBills() {
     var q = billMonth ? "?month=" + billMonth : "";
     fetch(API + "/agent/bills" + q)
@@ -628,6 +702,13 @@
         refreshAsset();
         refreshSecBadge();
         billMonth = null;
+        billMode = "month";
+        document.querySelectorAll("#tab-bills .bill-switch .chip").forEach(function (c) {
+          c.classList.toggle("on", c.dataset.billmode === "month");
+        });
+        document.querySelectorAll("#tab-bills .month-switch").forEach(function (x) {
+          x.style.display = "flex";
+        });
         loadBills();
         loadCards();
         loadAudit();

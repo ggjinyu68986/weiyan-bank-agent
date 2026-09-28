@@ -72,11 +72,15 @@
     <section id="tab-bills" class="tab">
       <div class="tab-head">
         <div class="tab-title">账单分析</div>
-        <div class="month-switch">
-          <button id="billPrev" class="ghost-btn">◀</button>
-          <span id="billPeriod" class="bill-period">--</span>
-          <button id="billNext" class="ghost-btn">▶</button>
+        <div class="bill-switch">
+          <button class="chip on" data-billmode="month">月度</button>
+          <button class="chip" data-billmode="year">年度</button>
         </div>
+      </div>
+      <div class="month-switch">
+        <button id="billPrev" class="ghost-btn">◀</button>
+        <span id="billPeriod" class="bill-period">--</span>
+        <button id="billNext" class="ghost-btn">▶</button>
       </div>
       <div class="summary-grid">
         <div class="summary-card inc"><div class="s-label">收入</div><div id="billIncome" class="s-val">--</div></div>

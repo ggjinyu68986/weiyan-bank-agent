@@ -227,6 +227,15 @@ def agent_pending_splits(account_id: str = "6222-0001"):
     return r.data
 
 
+@app.get("/api/v1/agent/annual")
+def agent_annual(account_id: str = "6222-0001", year: int = 2026):
+    """年度账单报告数据（前端年度视图数据源：按月收支趋势 + 年度分类 Top）。"""
+    r = service.annual_report(account_id, year)
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data
+
+
 @app.get("/api/v1/agent/bills")
 def agent_bills(account_id: str = "6222-0001", month: int | None = None):
     """账单分析原始数据（前端 ECharts 可视化数据源）。"""

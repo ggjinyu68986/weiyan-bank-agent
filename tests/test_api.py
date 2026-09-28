@@ -79,3 +79,13 @@ def test_full_aa_collab_across_users():
 def test_unknown_user_rejected():
     r = client.post("/api/v1/agent/chat", json={"message": "帮我看看余额", "user": "不存在的人"})
     assert r.status_code == 400
+
+def test_annual_report_endpoint():
+    """年度账单报告端点（前端年度视图数据源）：按月趋势 + 年度分类 Top。"""
+    d = client.get("/api/v1/agent/annual?account_id=6222-0001&year=2026").json()
+    assert d["year"] == 2026
+    assert d["month_count"] >= 1
+    assert d["total_expense_cents"] < 0
+    assert d["total_income_cents"] > 0
+    assert len(d["months"]) == d["month_count"]
+    assert len(d["top_categories"]) >= 1
