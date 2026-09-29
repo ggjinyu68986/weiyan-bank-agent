@@ -425,12 +425,12 @@
               formatter: function (ps) {
                 return ps.map(function (p) { return p.seriesName + "：" + p.value.toFixed(0) + " 元"; }).join("<br>");
               } },
-            legend: { data: ["收入", "支出"], bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 10.5, color: "#6B7280" } },
-            grid: { left: 34, right: 8, top: 18, bottom: 30 },
+            legend: { data: ["收入", "支出"], top: 4, right: 6, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 10.5, color: "#6B7280" } },
+            grid: { left: 36, right: 10, top: 30, bottom: 24 },
             xAxis: { type: "category", data: d.months.map(function (m) { return m.month + "月"; }),
               axisLine: { lineStyle: { color: "#E4E9F0" } }, axisLabel: { fontSize: 10, color: "#6B7280" } },
             yAxis: { type: "value", splitLine: { lineStyle: { color: "#EEF2F7" } },
-              axisLabel: { fontSize: 10, color: "#6B7280", formatter: function (v) { return (v / 100).toFixed(0) + "k"; } } },
+              axisLabel: { fontSize: 10, color: "#6B7280", formatter: function (v) { return (v / 1000).toFixed(0) + "k"; } } },
             series: [
               { name: "收入", type: "bar", data: d.months.map(function (m) { return m.income_cents / 100; }),
                 itemStyle: { color: "#0E9F6E", borderRadius: [3, 3, 0, 0] } },

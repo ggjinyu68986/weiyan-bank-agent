@@ -249,7 +249,7 @@ body {
   border: 1px solid var(--line); flex-shrink: 0;
 }
 .panel-title { font-size: 13px; font-weight: 700; color: var(--blue-deep); margin-bottom: 8px; }
-.bill-chart { width: 100%; height: 210px; }
+.bill-chart { width: 100%; height: 210px; margin-bottom: 12px; }
 .insight {
   background: var(--blue-soft); color: var(--blue-deep);
   font-size: 11.5px; padding: 7px 10px; border-radius: 9px; margin-bottom: 8px; line-height: 1.5;
