@@ -140,6 +140,30 @@
       </div>
     </section>
 
+    <!-- ============ 理财 Tab ============ -->
+    <section id="tab-wealth" class="tab">
+      <div class="tab-head">
+        <div class="tab-title">我的理财</div>
+        <button id="btnWealthRecommend" class="primary-btn">✨ 智能推荐</button>
+      </div>
+      <div class="panel">
+        <div class="panel-title">我的持仓</div>
+        <div id="wealthHoldings" class="wealth-holdings"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">在售产品 <span class="hint">对比 / 申购均通过 Agent 安全确认执行</span></div>
+        <div id="wealthProducts" class="wealth-products"></div>
+      </div>
+      <div id="wealthRecommendBox" class="panel hidden">
+        <div class="panel-title">✨ 智能推荐配置</div>
+        <div id="wealthRecommend"></div>
+      </div>
+      <div id="wealthCompareBox" class="panel hidden">
+        <div class="panel-title">产品对比</div>
+        <div id="wealthCompare"></div>
+      </div>
+    </section>
+
     <!-- ============ 审计 Tab ============ -->
     <section id="tab-audit" class="tab">
       <div class="tab-head">
@@ -160,6 +184,7 @@
     <button class="tab-item" data-tab="bills"><span class="ti">📊</span>账单</button>
     <button class="tab-item" data-tab="cards"><span class="ti">💳</span>卡片</button>
     <button class="tab-item" data-tab="contacts"><span class="ti">👥</span>联系人</button>
+    <button class="tab-item" data-tab="wealth"><span class="ti">📈</span>理财</button>
     <button class="tab-item" data-tab="audit"><span class="ti">📋</span>审计</button>
   </nav>
 </div>

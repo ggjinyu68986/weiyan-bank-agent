@@ -696,6 +696,51 @@ class BankService:
             message="风险评估完成",
         )
 
+    def wealth_recommend(self, user_id: int = 1) -> OpResult:
+        """理财推荐（绿级）：基于风险评估等级 + 当前持仓 + 账户可用余额，输出 Top 3 推荐
+        （每款含推荐理由/参考投入金额/示例月收益），供「推荐个理财」类自然语言直达。"""
+        ra = self.risk_assessment(user_id)
+        if not ra.ok:
+            return ra
+        level = ra.data["level"]
+        level_cn = ra.data["level_cn"]
+        acc = self._account("6222-0001")
+        avail = acc.available_cents if acc else 0
+        held = {h.product_id: h.amount_cents for h in self.store.holdings.values() if h.user_id == user_id}
+        # 同风险等级优先、同级别内按收益降序
+        pool = sorted(self.store.products.values(),
+                      key=lambda p: (p.risk_level != level, -p.expected_return))
+        ratios = [0.4, 0.3, 0.3]  # 参考配置比例（核心/稳健/卫星）
+        items = []
+        for i, p in enumerate(pool[:3]):
+            suggest = max(int(avail * ratios[i]), p.min_amount_cents)
+            if held.get(p.id, 0):
+                reason = "已持有，建议按原策略继续持有（可小额定投追加）"
+            elif p.risk_level == level:
+                reason = f"与你当前风险等级（{level_cn}）匹配，作为核心配置"
+            else:
+                reason = "不同风险梯度，小比例配置可平滑整体波动"
+            items.append({
+                "id": p.id, "name": p.name, "risk_level": p.risk_level,
+                "expected_return": p.expected_return, "min_amount_cents": p.min_amount_cents,
+                "held_cents": held.get(p.id, 0),
+                "suggest_amount_cents": suggest,
+                "est_monthly_income": round(suggest * p.expected_return / 12 / 100, 2),
+                "reason": reason,
+            })
+        est_total = sum(i["est_monthly_income"] for i in items)
+        return OpResult.success(
+            {
+                "user_id": user_id, "level": level, "level_cn": level_cn,
+                "available_cents": avail, "recommendations": items,
+                "summary": (
+                    f"基于你的风险等级（{level_cn}）与可用资金 {avail / 100:.2f} 元，"
+                    f"按 4:3:3 参考比例配置，建议组合示例月收益约 {est_total:.2f} 元。"
+                ),
+            },
+            message="理财推荐完成",
+        )
+
     def wealth_compare(self, product_ids: list[str]) -> OpResult:
         """理财对比：收益/风险/起购横向比较 + 结论建议。"""
         prods = [self.store.products[p] for p in product_ids if p in self.store.products]

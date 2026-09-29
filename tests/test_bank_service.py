@@ -335,7 +335,20 @@ def test_wealth_compare():
     r = BankService().wealth_compare(["WP-001", "WP-002", "WP-003"])
     assert r.ok
     assert len(r.data["compare"]) == 3
-    assert r.data["compare"][0]["expected_return"] <= r.data["compare"][-1]["expected_return"]
+
+def test_wealth_recommend():
+    """理财推荐（绿级）：结合风险等级+持仓+可用余额，输出 Top 3 推荐（理由/参考投入/示例收益）。"""
+    r = BankService().wealth_recommend(1)
+    assert r.ok
+    d = r.data
+    assert d["level"] == "low" and d["level_cn"] == "保守稳健型"
+    assert len(d["recommendations"]) == 3
+    # 首推应为低风险（与用户等级匹配），且给参考投入与示例收益
+    assert d["recommendations"][0]["risk_level"] == "low"
+    assert d["recommendations"][0]["suggest_amount_cents"] > 0
+    assert d["recommendations"][0]["est_monthly_income"] > 0
+    assert all(x["reason"] for x in d["recommendations"])
+    assert "4:3:3" in d["summary"]
 
 
 def test_change_password_strength():

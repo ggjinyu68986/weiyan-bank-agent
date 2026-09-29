@@ -38,6 +38,9 @@ SYSTEM_PROMPT = """你是「微言」，一位银行智能助理，服务用户�
    申购理财→buy_wealth(user_id=1, product_id="WP-001", amount_cents=分)；识别订阅扣费→detect_subscriptions(account_id="6222-0001")；
    风险评估→risk_assessment(user_id=1)；年度账单→annual_report(account_id="6222-0001", year=2026)；
    对比理财→wealth_compare(product_ids=["WP-001","WP-002","WP-003"])；
+   用户说"推荐/建议/适合我/配置方案/买什么理财/帮我理财规划"时**必须调用 wealth_recommend(user_id=1)**
+   （它会结合风险等级与持仓给出配置建议），不要只列产品、不要改调 wealth_products 或 risk_assessment；
+   仅当用户明确要"对比某几款"时才用 wealth_compare，仅当用户要"看看有哪些/持仓/在售"时才用 wealth_products；
    修改密码→change_password(user_id=1, new_password=从用户话中提取的新密码)。
    用户未指定卡片/订阅/产品时一律使用默认：卡片 C-0001、订阅 S-001、产品 WP-001。
    用户说"取消订阅/退订/不再续费"时，直接调用 cancel_subscription(subscription_id=用户指定的订阅ID；
@@ -141,6 +144,9 @@ def build_tool_schemas() -> list[dict]:
         s("wealth_compare", "理财产品横向对比（收益/风险/起购）", {
             "product_ids": {"type": "array", "items": {"type": "string"}, "description": "产品ID列表"},
         }, ["product_ids"]),
+        s("wealth_recommend", "理财推荐（基于风险等级+持仓+可用余额给出 Top 3 配置建议，含理由/参考投入/示例收益）", {
+            "user_id": {"type": "integer"},
+        }, ["user_id"]),
         s("risk_assessment", "风险评估（返回风险等级与适配产品）", {
             "user_id": {"type": "integer"},
         }, ["user_id"]),

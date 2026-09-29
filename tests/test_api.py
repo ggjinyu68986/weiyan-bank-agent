@@ -89,3 +89,18 @@ def test_annual_report_endpoint():
     assert d["total_income_cents"] > 0
     assert len(d["months"]) == d["month_count"]
     assert len(d["top_categories"]) >= 1
+
+
+def test_wealth_endpoints():
+    """理财端点：列表/推荐/对比（前端理财 Tab 数据源）。"""
+    d = client.get("/api/v1/agent/wealth?user_id=1").json()
+    assert len(d["products"]) == 3
+    assert len(d["holdings"]) >= 1
+
+    rec = client.get("/api/v1/agent/wealth/recommend?user_id=1").json()
+    assert len(rec["recommendations"]) == 3
+    assert rec["recommendations"][0]["risk_level"] == "low"
+
+    cmp = client.get("/api/v1/agent/wealth/compare?product_ids=WP-001,WP-003").json()
+    assert len(cmp["compare"]) == 2
+    assert cmp["compare"][0]["expected_return"] <= cmp["compare"][-1]["expected_return"]

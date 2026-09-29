@@ -227,6 +227,33 @@ def agent_pending_splits(account_id: str = "6222-0001"):
     return r.data
 
 
+@app.get("/api/v1/agent/wealth")
+def agent_wealth(user_id: int = 1):
+    """理财 Tab 数据源：在售产品 + 我的持仓。"""
+    r = service.wealth_products(user_id)
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data
+
+
+@app.get("/api/v1/agent/wealth/recommend")
+def agent_wealth_recommend(user_id: int = 1):
+    """理财推荐（绿级）：风险等级 + 持仓 + 可用余额 → Top 3 推荐（理由/参考投入/示例收益）。"""
+    r = service.wealth_recommend(user_id)
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data
+
+
+@app.get("/api/v1/agent/wealth/compare")
+def agent_wealth_compare(product_ids: str = "WP-001,WP-002"):
+    """理财对比：按 ID 列表横向比较（收益/风险/起购）+ 结论建议。"""
+    r = service.wealth_compare([x.strip() for x in product_ids.split(",") if x.strip()])
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data
+
+
 @app.get("/api/v1/agent/annual")
 def agent_annual(account_id: str = "6222-0001", year: int = 2026):
     """年度账单报告数据（前端年度视图数据源：按月收支趋势 + 年度分类 Top）。"""

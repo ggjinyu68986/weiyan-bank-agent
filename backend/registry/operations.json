@@ -200,6 +200,12 @@
       "category": "AA收款",
       "risk": "green",
       "daily_limit_cents": null
+    },
+    {
+      "tool": "wealth_recommend",
+      "name_cn": "理财推荐",
+      "category": "理财",
+      "risk": "green"
     }
   ]
 }

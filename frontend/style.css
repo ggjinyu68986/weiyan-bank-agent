@@ -250,6 +250,33 @@ body {
 }
 .panel-title { font-size: 13px; font-weight: 700; color: var(--blue-deep); margin-bottom: 8px; }
 .bill-chart { width: 100%; height: 210px; margin-bottom: 12px; }
+
+/* ===== 理财 Tab ===== */
+.wealth-holdings .wealth-held { display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; background: #F4F7FB; border-radius: 10px; margin-bottom: 6px; font-size: 13px; }
+.wealth-products { display: flex; flex-direction: column; gap: 8px; }
+.wealth-card { border: 1px solid #E4E9F0; border-radius: 12px; padding: 12px; background: #fff; }
+.wc-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.wc-top b { font-size: 14px; color: #1F2937; }
+.wc-meta { font-size: 12px; color: #6B7280; margin-bottom: 8px; }
+.wc-meta b { color: var(--blue-deep); font-size: 13px; }
+.wc-actions { display: flex; gap: 8px; }
+.wc-btn { flex: 1; }
+.risk { font-size: 10.5px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+.risk-low { background: #E6F7EF; color: #0E9F6E; }
+.risk-mid { background: #FFF4E0; color: #C2610C; }
+.risk-high { background: #FDE8E8; color: #D0342C; }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 8px; }
+.cmp-table th, .cmp-table td { border: 1px solid #E4E9F0; padding: 7px 8px; text-align: center; }
+.cmp-table th { background: #F4F7FB; font-weight: 700; color: #1F2937; }
+.cmp-table td:first-child { text-align: left; color: #6B7280; background: #FAFBFD; font-weight: 600; }
+.cmp-sug { font-size: 12px; color: var(--blue-deep); background: #EFF4FC; padding: 8px 10px; border-radius: 8px; }
+.rec-summary { font-size: 12.5px; color: #374151; background: #F4F7FB; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; line-height: 1.6; }
+.rec-row { border: 1px solid #E4E9F0; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; background: #fff; }
+.rec-row .idx { color: var(--blue-deep); margin-right: 4px; }
+.rec-meta { font-size: 12px; color: #6B7280; margin: 4px 0; }
+.rec-reason { font-size: 12px; color: #374151; }
+.hint { font-size: 10.5px; color: #9CA3AF; font-weight: 400; }
 .insight {
   background: var(--blue-soft); color: var(--blue-deep);
   font-size: 11.5px; padding: 7px 10px; border-radius: 9px; margin-bottom: 8px; line-height: 1.5;

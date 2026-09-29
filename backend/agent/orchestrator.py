@@ -85,6 +85,7 @@ EXECUTORS = {
     "wealth_products": lambda svc, p: svc.wealth_products(p.get("user_id", 1)),
     "wealth_compare": lambda svc, p: svc.wealth_compare(p.get("product_ids", ["WP-001", "WP-002", "WP-003"])),
     "risk_assessment": lambda svc, p: svc.risk_assessment(p.get("user_id", 1)),
+    "wealth_recommend": lambda svc, p: svc.wealth_recommend(p.get("user_id", 1)),
     "buy_wealth": lambda svc, p: svc.buy_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
     "redeem_wealth": lambda svc, p: svc.redeem_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
     # 场景4：卡片管理
@@ -113,7 +114,7 @@ _TOOL_CN = {
     "annual_report": "年度账单", "transfer": "转账", "schedule_transfer": "定时转账", "split_bill": "AA收款",
     "split_bill_status": "AA收款进度", "pay_split_bill": "AA收款入账",
     "list_contacts": "联系人查询", "add_contact": "添加联系人",
-    "wealth_products": "理财查询", "wealth_compare": "理财对比", "risk_assessment": "风险评估",
+    "wealth_products": "理财查询", "wealth_compare": "理财对比", "wealth_recommend": "理财推荐", "risk_assessment": "风险评估",
     "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
     "apply_virtual_card": "虚拟卡申请", "adjust_card_limit": "额度调整",
     "report_card_loss": "卡片挂失", "unlock_card": "卡片解挂",
@@ -613,6 +614,13 @@ def _summarize(tool: str, r) -> str:
     if tool == "risk_assessment":
         matched = "、".join(p["name"] for p in d["matched_products"])
         return f"风险评估：{d['level_cn']}（{d['level']}）。适配产品：{matched}。建议：{d['advice']}"
+    if tool == "wealth_recommend":
+        recs = "；".join(
+            f"{r['name']}（年化{r['expected_return'] * 100:.1f}%，参考投入 {r['suggest_amount_cents'] / 100:.2f} 元，"
+            f"示例月收益约 {r['est_monthly_income']:.2f} 元）：{r['reason']}"
+            for r in d["recommendations"]
+        )
+        return f"理财推荐（{d['level_cn']}）：{recs}。{d['summary']}"
     if tool == "wealth_compare":
         rows = "、".join(
             f"{c['name']}（年化{c['expected_return'] * 100:.1f}%，风险{c['risk_level']}）" for c in d["compare"]

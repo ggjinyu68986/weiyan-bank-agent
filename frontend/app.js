@@ -64,6 +64,7 @@
       if (t.dataset.tab === "bills") { if (billMode === "year") loadAnnual(); else loadBills(); }
       if (t.dataset.tab === "cards") loadCards();
       if (t.dataset.tab === "contacts") loadContacts();
+      if (t.dataset.tab === "wealth") loadWealth();
       if (t.dataset.tab === "audit") loadAudit();
       if (t.dataset.tab === "chat") refreshAsset();
     };
@@ -163,6 +164,7 @@
     input.value = msg;
     send();
   }
+  document.getElementById("btnWealthRecommend").onclick = function () { quickSend("根据我的情况推荐几款理财"); };
   document.querySelectorAll(".quick, .op").forEach(function (b) {
     b.onclick = function () {
       // 跳回对话 tab 再发送
@@ -343,6 +345,21 @@
       addAssistant("已生成账单图表，可点击底部「账单」查看可视化分析。");
       loadBills();
     }
+    if (res.requires === "auto" && res.tool === "wealth_products") {
+      addAssistant("已加载理财列表，可点击底部「理财」查看在售产品与持仓。");
+      loadWealth();
+    }
+    if (res.requires === "auto" && res.tool === "wealth_recommend") {
+      addAssistant("已生成智能推荐，可点击底部「理财」查看推荐配置。");
+      fetch(API + "/agent/wealth/recommend?user_id=1").then(function (r) { return r.json(); }).then(renderWealthRecommend).catch(function () {});
+    }
+    if (res.requires === "auto" && res.tool === "wealth_compare") {
+      addAssistant("对比结果已生成，可点击底部「理财」查看。");
+      fetch(API + "/agent/wealth/compare?product_ids=WP-001,WP-002").then(function (r) { return r.json(); }).then(renderWealthCompare).catch(function () {});
+    }
+    if (res.requires === "auto" && res.tool === "risk_assessment") {
+      addAssistant("风险评估完成：可在底部「理财」查看适配与推荐配置。");
+    }
     if (res.requires === "auto" && res.tool === "annual_report") {
       addAssistant("已生成年度账单报告，可点击底部「账单」查看年度收支趋势。");
       // 预切年度视图状态：用户点「账单」Tab 即加载年度报告
@@ -373,6 +390,62 @@
       if (ph.firstChild) { chat.appendChild(ph.firstChild); scrollChat(); bindPayButtons(); }
     }
     if (res.execution_id) refreshAsset();
+  }
+
+  /* ========== 理财 Tab（场景3：产品推荐与对比） ========== */
+  function riskCn(l) { return l === "low" ? "低风险" : l === "mid" ? "中风险" : "高风险"; }
+  function loadWealth() {
+    fetch(API + "/agent/wealth?user_id=1")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var holdEl = document.getElementById("wealthHoldings");
+        if (!d.holdings || !d.holdings.length) {
+          holdEl.innerHTML = '<div class="empty">暂无持仓，可申购在售产品</div>';
+        } else {
+          holdEl.innerHTML = d.holdings.map(function (h) {
+            var p = d.products.find(function (x) { return x.id === h.product_id; });
+            return '<div class="wealth-held"><b>' + (p ? p.name : h.product_id) + "</b>" +
+              '<span>持有 ' + fmtNum(h.amount_cents) + " 元</span></div>";
+          }).join("");
+        }
+        var other = d.products[1] || d.products[0];
+        document.getElementById("wealthProducts").innerHTML = d.products.map(function (p) {
+          return '<div class="wealth-card"><div class="wc-top"><b>' + p.name + "</b>" +
+            '<span class="risk risk-' + p.risk_level + '">' + riskCn(p.risk_level) + "</span></div>" +
+            '<div class="wc-meta">年化 <b>' + (p.expected_return * 100).toFixed(1) + "%</b> · 起购 " +
+            fmtNum(p.min_amount_cents) + " 元</div>" +
+            '<div class="wc-actions"><button class="op wc-btn" data-msg="对比' + p.name + "和" + other.name + '">对比</button>' +
+            '<button class="op wc-btn" data-msg="买 ' + fmtYuan(p.min_amount_cents * 10) + " 元的" + p.name + '">申购</button></div></div>';
+        }).join("");
+        bindWealthOps();
+      });
+  }
+  function bindWealthOps() {
+    document.querySelectorAll("#tab-wealth .wc-btn").forEach(function (b) {
+      b.onclick = function () { quickSend(b.dataset.msg); };
+    });
+  }
+  function renderWealthCompare(d) {
+    var el = document.getElementById("wealthCompare");
+    el.innerHTML = '<table class="cmp-table"><tr><th></th>' +
+      d.compare.map(function (c) { return "<th>" + c.name + "</th>"; }).join("") + "</tr>" +
+      '<tr><td>年化收益</td>' + d.compare.map(function (c) { return "<td>" + (c.expected_return * 100).toFixed(1) + "%</td>"; }).join("") + "</tr>" +
+      '<tr><td>风险等级</td>' + d.compare.map(function (c) { return "<td>" + riskCn(c.risk_level) + "</td>"; }).join("") + "</tr>" +
+      '<tr><td>起购金额</td>' + d.compare.map(function (c) { return "<td>" + fmtNum(c.min_amount_cents) + " 元</td>"; }).join("") + "</tr>" +
+      "</table><div class='cmp-sug'>💡 " + d.suggestion + "</div>";
+    document.getElementById("wealthCompareBox").classList.remove("hidden");
+  }
+  function renderWealthRecommend(d) {
+    var el = document.getElementById("wealthRecommend");
+    el.innerHTML = '<div class="rec-summary">📊 ' + d.summary + "</div>" +
+      d.recommendations.map(function (r, i) {
+        return '<div class="rec-row"><b class="idx">' + (i + 1) + ".</b><b>" + r.name + "</b>" +
+          '<span class="risk risk-' + r.risk_level + '">' + riskCn(r.risk_level) + "</span>" +
+          '<div class="rec-meta">年化 ' + (r.expected_return * 100).toFixed(1) + "% · 参考投入 " +
+          fmtNum(r.suggest_amount_cents) + " 元 · 示例月收益约 " + r.est_monthly_income + " 元</div>" +
+          '<div class="rec-reason">' + r.reason + "</div></div>";
+      }).join("");
+    document.getElementById("wealthRecommendBox").classList.remove("hidden");
   }
 
   /* ========== 账单 Tab ========== */
@@ -703,6 +776,8 @@
         refreshSecBadge();
         billMonth = null;
         billMode = "month";
+        document.getElementById("wealthRecommendBox").classList.add("hidden");
+        document.getElementById("wealthCompareBox").classList.add("hidden");
         document.querySelectorAll("#tab-bills .bill-switch .chip").forEach(function (c) {
           c.classList.toggle("on", c.dataset.billmode === "month");
         });
