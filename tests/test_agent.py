@@ -546,6 +546,35 @@ class RetryThenToolLLM(MockLLM):
         return super().complete(messages, tools)
 
 
+def test_risk_quiz_conversation():
+    """对话式风险评估：触发→逐题回答→计分提交（全保守=6分 low），审计记录问卷与提交。"""
+    o = AgentOrchestrator(llm=MockLLM())
+    r = o.handle("做风险评估")
+    assert r.requires == "chat" and "1/6" in r.message
+    for i in range(6):
+        q = o.service.RISK_QUESTIONS[i]
+        r = o.handle(q["options"][0]["label"])  # 每题选保守项
+    assert r.requires == "auto" and r.tool == "risk_submit"
+    assert r.data["level"] == "low" and r.data["score"] == 6
+    # 审计：开始 1 条 + 推进 6 条 = 7，提交 1 条
+    assert sum(1 for rec in o.audit if rec.action == "quiz") == 7
+    assert any(rec.tool == "risk_submit" for rec in o.audit)
+    # 状态已清空，可重新触发
+    assert o.handle("做风险评估").requires == "chat"
+
+
+def test_risk_quiz_invalid_then_cancel():
+    """问卷：答非选项→重问当前题；中途取消→中断并可重来。"""
+    o = AgentOrchestrator(llm=MockLLM())
+    o.handle("做风险评估")
+    r = o.handle("随便说点什么")  # 无效答案
+    assert r.requires == "chat" and "请从以下选项" in r.message
+    r = o.handle("取消")
+    assert r.requires == "chat" and "已取消" in r.message
+    assert o.handle("做风险评估").requires == "chat"  # 可重新开始
+    assert any(rec.action == "cancel" for rec in o.audit)
+
+
 def test_operation_auto_retry_then_tool():
     """操作类请求模型首轮未调工具 → 系统自动重试一次 → 第二次调 transfer → 正常走黄级确认。"""
     llm = RetryThenToolLLM()

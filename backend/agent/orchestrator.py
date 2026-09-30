@@ -157,6 +157,9 @@ class AuditRecord:
 MFA_FAIL_LIMIT = 3  # 连续输错验证码
 SUSPICIOUS_LIMIT = 3  # 连续注入/越权试探
 
+# 对话式风险评估问卷触发词（命中后系统逐题询问，不走 LLM 解析，保证选项准确）
+RISK_QUIZ_TRIGGERS = ("做风险评估", "风险测评", "风险问卷", "测一测风险", "评估风险等级")
+
 
 class AgentOrchestrator:
     def __init__(self, llm: BaseLLM | None = None, service: BankService | None = None,
@@ -240,6 +243,40 @@ class AgentOrchestrator:
             tool="risk_submit", data=d,
         )
 
+    def _advance_risk_quiz(self, user_msg: str, st: dict) -> AgentReply:
+        """问卷进行中的一轮：校验选项 → 存答案 → 下一题或计分提交；支持取消与错误重问。"""
+        quiz = st.get("risk_quiz")
+        if any(k in user_msg for k in ("取消", "退出", "算了", "不做", "跳过")):
+            st.pop("risk_quiz", None)
+            self._log(user_msg, "risk_quiz", {}, "green", "cancel", "", "风险评估问卷中断（用户取消）")
+            return AgentReply("chat", "已取消风险评估，随时可以说「做风险评估」重新开始。")
+        q = self.service.RISK_QUESTIONS[quiz["q_index"]]
+        labels = [o["label"] for o in q["options"]]
+        if user_msg not in labels:
+            return AgentReply("chat",
+                f"第 {quiz['q_index'] + 1}/6 题：{q['text']}\n请从以下选项回复一项：{'、'.join(labels)}（或回复「取消」退出）")
+        quiz["answers"][q["id"]] = user_msg
+        quiz["q_index"] += 1
+        self._log(user_msg, "risk_quiz", {q["id"]: user_msg}, "green", "quiz", "",
+                  f"问卷进度 {quiz['q_index']}/{len(self.service.RISK_QUESTIONS)}")
+        if quiz["q_index"] >= len(self.service.RISK_QUESTIONS):
+            st.pop("risk_quiz", None)
+            r = self.service.risk_submit(self.user_id, quiz["answers"])
+            if not r.ok:
+                return AgentReply("chat", r.message)
+            d = r.data
+            matched = "、".join(p["name"] for p in d["matched_products"])
+            self._log("风险评估问卷完成", "risk_submit", quiz["answers"], "green", "auto", "",
+                      f"{d['level_cn']}（{d['score']} 分），适配：{matched}")
+            return AgentReply(
+                "auto",
+                f"✅ 风险评估完成：{d['level_cn']}（{d['score']} 分）。适配产品：{matched}。{d['advice']} {d['risk_warning']}",
+                tool="risk_submit", data=d,
+            )
+        nq = self.service.RISK_QUESTIONS[quiz["q_index"]]
+        return AgentReply("chat",
+            f"已记录（{quiz['q_index']}/6）。下一题：{nq['text']}\n请回复选项文字：{'、'.join(o['label'] for o in nq['options'])}")
+
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:
         st = user_state or self.user_state
@@ -247,6 +284,22 @@ class AgentOrchestrator:
         if st.get("locked"):
             out = AgentReply("deny", "⚠ 账户已安全锁定（连续验证失败或可疑行为），请重置会话或联系人工接管")
             self._log(user_msg, "", {}, "", "lockout", "", out.message)
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+
+        # 对话式风险评估问卷：进行中 → 本轮消息视为答案（支持取消/错误重问）
+        if st.get("risk_quiz"):
+            out = self._advance_risk_quiz(user_msg, st)
+            self.history.append({"role": "user", "content": user_msg})
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+        if any(k in user_msg for k in RISK_QUIZ_TRIGGERS):
+            st["risk_quiz"] = {"answers": {}, "q_index": 0}
+            q0 = self.service.RISK_QUESTIONS[0]
+            self._log(user_msg, "risk_quiz", {}, "green", "quiz", "", "开始风险评估问卷（1/6）")
+            opts = "、".join(o["label"] for o in q0["options"])
+            out = AgentReply("chat", f"开始风险评估（1/6）：{q0['text']}\n请回复选项文字，如：「{q0['options'][0]['label']}」\n{opts}")
+            self.history.append({"role": "user", "content": user_msg})
             self.history.append({"role": "assistant", "content": out.message})
             return out
 
