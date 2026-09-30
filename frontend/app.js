@@ -197,6 +197,23 @@
       e.textContent = "执行编号 " + opts.eid;
       d.appendChild(e);
     }
+    if (opts.quiz) {
+      var box = document.createElement("div");
+      box.className = "quiz-options";
+      opts.quiz.options.forEach(function (label, i) {
+        var b = document.createElement("button");
+        b.className = "quiz-opt-btn";
+        b.textContent = (i + 1) + ". " + label;
+        b.onclick = function () { input.value = label; send(); };
+        box.appendChild(b);
+      });
+      var c = document.createElement("button");
+      c.className = "quiz-cancel-btn";
+      c.textContent = "✕ 取消问卷";
+      c.onclick = function () { input.value = "取消"; send(); };
+      box.appendChild(c);
+      d.appendChild(box);
+    }
     chat.appendChild(d);
     scrollChat();
   }
@@ -334,7 +351,7 @@
   }
 
   function renderReply(res) {
-    if (res.requires === "chat") { addAssistant(res.message); return; }
+    if (res.requires === "chat") { addAssistant(res.message, { quiz: res.data && res.data.quiz }); return; }
     if (res.requires === "confirm") { addConfirmCard(res); return; }
     if (res.requires === "mfa") { openMfa(res); return; }
     addAssistant(res.message, { deny: res.requires === "deny", eid: res.execution_id });

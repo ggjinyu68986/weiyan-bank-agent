@@ -163,6 +163,19 @@ RISK_QUIZ_TRIGGERS = ("做风险评估", "做一下风险评估", "风险测评"
 RISK_QUIZ_EXCLUDE = ("查看", "看看", "查询", "结果", "等级", "我的风险")
 
 
+def _match_quiz_option(user_msg: str, options: list) -> str | None:
+    """问卷选项容错匹配：忽略空格（"5年以上"→"5 年以上"）、支持序号（"2"→第 2 项）。"""
+    norm = "".join(user_msg.split()).lower()
+    for o in options:
+        if "".join(o["label"].split()).lower() == norm:
+            return o["label"]
+    if user_msg.strip().isdigit():
+        idx = int(user_msg.strip())
+        if 1 <= idx <= len(options):
+            return options[idx - 1]["label"]
+    return None
+
+
 class AgentOrchestrator:
     def __init__(self, llm: BaseLLM | None = None, service: BankService | None = None,
                  decision: DecisionEngine | None = None,
@@ -254,10 +267,13 @@ class AgentOrchestrator:
             return AgentReply("chat", "已取消风险评估，随时可以说「做风险评估」重新开始。")
         q = self.service.RISK_QUESTIONS[quiz["q_index"]]
         labels = [o["label"] for o in q["options"]]
-        if user_msg not in labels:
+        matched = _match_quiz_option(user_msg, q["options"])
+        if matched is None:
             return AgentReply("chat",
-                f"第 {quiz['q_index'] + 1}/6 题：{q['text']}\n请从以下选项回复一项：{'、'.join(labels)}（或回复「取消」退出）")
-        quiz["answers"][q["id"]] = user_msg
+                f"第 {quiz['q_index'] + 1}/6 题：{q['text']}\n请从以下选项回复一项：{'、'.join(labels)}（或回复「取消」退出）",
+                data={"quiz": {"q_index": quiz["q_index"] + 1, "total": len(self.service.RISK_QUESTIONS),
+                              "text": q["text"], "options": labels}})
+        quiz["answers"][q["id"]] = matched
         quiz["q_index"] += 1
         self._log(user_msg, "risk_quiz", {q["id"]: user_msg}, "green", "quiz", "",
                   f"问卷进度 {quiz['q_index']}/{len(self.service.RISK_QUESTIONS)}")
@@ -277,7 +293,9 @@ class AgentOrchestrator:
             )
         nq = self.service.RISK_QUESTIONS[quiz["q_index"]]
         return AgentReply("chat",
-            f"已记录（{quiz['q_index']}/6）。下一题：{nq['text']}\n请回复选项文字：{'、'.join(o['label'] for o in nq['options'])}")
+            f"已记录（{quiz['q_index']}/6）。下一题：{nq['text']}\n请回复选项文字或序号，或直接点下方选项：{'、'.join(o['label'] for o in nq['options'])}",
+            data={"quiz": {"q_index": quiz["q_index"] + 1, "total": len(self.service.RISK_QUESTIONS),
+                          "text": nq["text"], "options": [o["label"] for o in nq["options"]]}})
 
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:
@@ -300,7 +318,10 @@ class AgentOrchestrator:
             q0 = self.service.RISK_QUESTIONS[0]
             self._log(user_msg, "risk_quiz", {}, "green", "quiz", "", "开始风险评估问卷（1/6）")
             opts = "、".join(o["label"] for o in q0["options"])
-            out = AgentReply("chat", f"开始风险评估（1/6）：{q0['text']}\n请回复选项文字，如：「{q0['options'][0]['label']}」\n{opts}")
+            out = AgentReply("chat", f"开始风险评估（1/6）：{q0['text']}\n可回复选项文字或序号（如「1」），也可以直接点下方选项。\n{opts}",
+                             data={"quiz": {"q_index": 1, "total": len(self.service.RISK_QUESTIONS),
+                                           "text": q0["text"],
+                                           "options": [o["label"] for o in q0["options"]]}})
             self.history.append({"role": "user", "content": user_msg})
             self.history.append({"role": "assistant", "content": out.message})
             return out

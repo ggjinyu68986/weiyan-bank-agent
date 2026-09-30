@@ -584,6 +584,23 @@ def test_risk_quiz_not_triggered_for_query():
     assert not (r.requires == "chat" and "1/6" in r.message)
 
 
+def test_risk_quiz_fuzzy_option_and_sequence():
+    """选项容错：'5年以上'（无空格）→'5 年以上'；序号'2'→第 2 项；回复携带 data.quiz 供前端渲染。"""
+    o = AgentOrchestrator(llm=MockLLM())
+    r = o.handle("做风险评估")
+    assert r.data and r.data.get("quiz") and len(r.data["quiz"]["options"]) == 4
+    r = o.handle("5年以上")  # 无空格
+    assert "已记录（1/6）" in r.message
+    assert o.user_state["risk_quiz"]["answers"]["q1"] == "5 年以上"
+    r = o.handle("2")  # 序号
+    assert "已记录（2/6）" in r.message
+    assert o.user_state["risk_quiz"]["answers"]["q2"] == "略高于存款利息"
+    # 无效序号/文字 → 重问且仍带 quiz 数据
+    r = o.handle("99")
+    assert r.requires == "chat" and "请从以下选项" in r.message
+    assert r.data and r.data["quiz"]["q_index"] == 3
+
+
 def test_risk_quiz_invalid_then_cancel():
     """问卷：答非选项→重问当前题；中途取消→中断并可重来。"""
     o = AgentOrchestrator(llm=MockLLM())
