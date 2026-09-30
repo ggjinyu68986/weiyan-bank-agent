@@ -104,3 +104,18 @@ def test_wealth_endpoints():
     cmp = client.get("/api/v1/agent/wealth/compare?product_ids=WP-001,WP-003").json()
     assert len(cmp["compare"]) == 2
     assert cmp["compare"][0]["expected_return"] <= cmp["compare"][-1]["expected_return"]
+
+
+def test_risk_submit_endpoint_with_audit():
+    """风险评估提交端点：走 Agent 编排（绿级自动 + 审计留痕），返回等级与适配产品。"""
+    q = client.get("/api/v1/agent/risk/questions").json()
+    assert len(q["questions"]) == 6
+    answers = {x["id"]: x["options"][0]["label"] for x in q["questions"]}
+    r = client.post("/api/v1/agent/risk/submit", json={"user_id": 1, "answers": answers})
+    body = r.json()
+    assert body["requires"] == "auto"
+    assert body["tool"] == "risk_submit"
+    assert body["data"]["level"] == "low"
+    # 审计落账
+    aud = client.get("/api/v1/agent/audit").json()["records"]
+    assert any(rec["tool"] == "risk_submit" for rec in aud)

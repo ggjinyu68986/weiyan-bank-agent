@@ -147,6 +147,10 @@
         <button id="btnWealthRecommend" class="primary-btn">✨ 智能推荐</button>
       </div>
       <div class="panel">
+        <div class="panel-title">风险评估 <span class="hint">KYC 适当性 · 完成问卷后推荐更精准</span></div>
+        <div id="riskStatus" class="risk-status"></div>
+      </div>
+      <div class="panel">
         <div class="panel-title">我的持仓</div>
         <div id="wealthHoldings" class="wealth-holdings"></div>
       </div>
@@ -187,6 +191,19 @@
     <button class="tab-item" data-tab="wealth"><span class="ti">📈</span>理财</button>
     <button class="tab-item" data-tab="audit"><span class="ti">📋</span>审计</button>
   </nav>
+</div>
+
+<!-- 风险评估问卷弹层 -->
+<div id="riskMask" class="mask hidden">
+  <div class="modal risk-modal">
+    <div class="modal-title">风险评估问卷</div>
+    <div class="risk-tip">共 6 题，根据您的真实情况作答，评估结果将影响理财推荐适配范围</div>
+    <div id="riskQuestions" class="risk-questions"></div>
+    <div class="modal-actions">
+      <button id="riskCancel" class="btn ghost">取消</button>
+      <button id="riskSubmit" class="btn primary">提交评估</button>
+    </div>
+  </div>
 </div>
 
 <!-- MFA 验证码弹层 -->

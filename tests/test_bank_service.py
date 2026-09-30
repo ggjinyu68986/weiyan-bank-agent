@@ -351,6 +351,48 @@ def test_wealth_recommend():
     assert "4:3:3" in d["summary"]
 
 
+def test_risk_questionnaire_kqc():
+    """KYC 问卷：6 题、每题 4 选项、分值 1-4。"""
+    r = BankService().risk_questionnaire()
+    assert r.ok
+    qs = r.data["questions"]
+    assert len(qs) == 6
+    assert all(len(q["options"]) == 4 for q in qs)
+    assert all(all(o["score"] in (1, 2, 3, 4) for o in q["options"]) for q in qs)
+    assert r.data["score_range"] == [6, 24]
+
+
+def test_risk_submit_level_mapping():
+    """问卷计分 → 等级映射：全 1 分=保守稳健型 low，全 4 分=积极进取型 high；画像落库。"""
+    svc = BankService()
+    conservative = {q["id"]: q["options"][0]["label"] for q in svc.RISK_QUESTIONS}
+    r1 = svc.risk_submit(1, conservative)
+    assert r1.ok and r1.data["level"] == "low" and r1.data["score"] == 6
+    assert r1.data["level_cn"] == "保守稳健型"
+    assert any(p["risk_level"] == "low" for p in r1.data["matched_products"])
+    assert "非存款" in r1.data["risk_warning"]  # 适当性合规提示
+
+    aggressive = {q["id"]: q["options"][3]["label"] for q in svc.RISK_QUESTIONS}
+    r2 = svc.risk_submit(1, aggressive)
+    assert r2.ok and r2.data["level"] == "high" and r2.data["score"] == 24
+    assert r2.data["level_cn"] == "积极进取型"
+
+    # 画像落库，risk_assessment 读取新等级
+    ra = svc.risk_assessment(1)
+    assert ra.data["level"] == "high"
+
+    # 推荐联动：进取型用户首推高风险产品
+    rec = svc.wealth_recommend(1)
+    assert rec.data["level"] == "high"
+
+
+def test_risk_submit_incomplete():
+    """问卷缺失答案 → 报错，不落画像。"""
+    svc = BankService()
+    r = svc.risk_submit(1, {"q1": "没有经验"})
+    assert not r.ok and r.code == "INCOMPLETE_ANSWERS"
+
+
 def test_change_password_strength():
     svc = BankService()
     assert not svc.change_password(1, "123").ok  # 太短

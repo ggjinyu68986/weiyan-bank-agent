@@ -227,6 +227,26 @@ def agent_pending_splits(account_id: str = "6222-0001"):
     return r.data
 
 
+@app.get("/api/v1/agent/risk/questions")
+def agent_risk_questions():
+    """风险评估问卷（KYC 适当性）：6 题 + 选项，前端答题弹层数据源。"""
+    r = service.risk_questionnaire()
+    if not r.ok:
+        raise HTTPException(status_code=400, detail=r.to_dict())
+    return r.data
+
+
+class RiskSubmitRequest(BaseModel):
+    user_id: int = 1
+    answers: dict
+
+
+@app.post("/api/v1/agent/risk/submit")
+def agent_risk_submit(req: RiskSubmitRequest):
+    """提交问卷答案：走 Agent 编排（绿级自动 + 审计），返回等级/适配产品/风险提示。"""
+    return _reply(agent_for(DEFAULT_USER).submit_risk(req.answers, req.user_id))
+
+
 @app.get("/api/v1/agent/wealth")
 def agent_wealth(user_id: int = 1):
     """理财 Tab 数据源：在售产品 + 我的持仓。"""

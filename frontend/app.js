@@ -64,7 +64,7 @@
       if (t.dataset.tab === "bills") { if (billMode === "year") loadAnnual(); else loadBills(); }
       if (t.dataset.tab === "cards") loadCards();
       if (t.dataset.tab === "contacts") loadContacts();
-      if (t.dataset.tab === "wealth") loadWealth();
+      if (t.dataset.tab === "wealth") { loadWealth(); loadRiskStatus(); }
       if (t.dataset.tab === "audit") loadAudit();
       if (t.dataset.tab === "chat") refreshAsset();
     };
@@ -391,6 +391,66 @@
     }
     if (res.execution_id) refreshAsset();
   }
+
+  /* ========== 风险评估（KYC 问卷） ========== */
+  var riskAnswers = {};
+  function loadRiskStatus() {
+    fetch(API + "/agent/wealth/recommend?user_id=1")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var el = document.getElementById("riskStatus");
+        el.innerHTML = '<div class="risk-now">当前等级：<b>' + d.level_cn + "</b>" +
+          '<button class="ghost-btn" id="btnRiskReeval">重新评估</button></div>';
+        document.getElementById("btnRiskReeval").onclick = openRiskModal;
+      })
+      .catch(function () {});
+  }
+  function openRiskModal() {
+    fetch(API + "/agent/risk/questions")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        riskAnswers = {};
+        var el = document.getElementById("riskQuestions");
+        el.innerHTML = d.questions.map(function (q) {
+          return '<div class="risk-q"><div class="risk-q-text">' + q.text + "</div>" +
+            '<div class="risk-opts">' + q.options.map(function (o, i) {
+              return '<label class="risk-opt"><input type="radio" name="' + q.id + '" value="' + o.label + '">' +
+                '<span>' + o.label + "</span></label>";
+            }).join("") + "</div></div>";
+        }).join("");
+        el.querySelectorAll("input[type=radio]").forEach(function (r) {
+          r.onchange = function () { riskAnswers[r.name] = r.value; };
+        });
+        document.getElementById("riskMask").classList.remove("hidden");
+      });
+  }
+  function submitRisk() {
+    if (Object.keys(riskAnswers).length < 6) {
+      addAssistant("请完成全部 6 题后再提交评估。", { deny: true });
+      return;
+    }
+    fetch(API + "/agent/risk/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: 1, answers: riskAnswers }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        document.getElementById("riskMask").classList.add("hidden");
+        if (res.requires === "auto") {
+          addAssistant(res.message, { eid: res.execution_id });
+          loadRiskStatus();  // 刷新等级卡
+          loadWealth();      // 刷新推荐（画像变了）
+        } else {
+          addAssistant(res.message, { deny: true });
+        }
+      })
+      .catch(function () { addAssistant("提交失败，请确认后端已启动。", { deny: true }); });
+  }
+  document.getElementById("riskSubmit").onclick = submitRisk;
+  document.getElementById("riskCancel").onclick = function () {
+    document.getElementById("riskMask").classList.add("hidden");
+  };
 
   /* ========== 理财 Tab（场景3：产品推荐与对比） ========== */
   function riskCn(l) { return l === "low" ? "低风险" : l === "mid" ? "中风险" : "高风险"; }

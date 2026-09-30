@@ -85,6 +85,8 @@ EXECUTORS = {
     "wealth_products": lambda svc, p: svc.wealth_products(p.get("user_id", 1)),
     "wealth_compare": lambda svc, p: svc.wealth_compare(p.get("product_ids", ["WP-001", "WP-002", "WP-003"])),
     "risk_assessment": lambda svc, p: svc.risk_assessment(p.get("user_id", 1)),
+    "risk_questionnaire": lambda svc, p: svc.risk_questionnaire(),
+    "risk_submit": lambda svc, p: svc.risk_submit(p.get("user_id", 1), p.get("answers", {})),
     "wealth_recommend": lambda svc, p: svc.wealth_recommend(p.get("user_id", 1)),
     "buy_wealth": lambda svc, p: svc.buy_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
     "redeem_wealth": lambda svc, p: svc.redeem_wealth(p["user_id"], p["product_id"], p["amount_cents"]),
@@ -115,6 +117,7 @@ _TOOL_CN = {
     "split_bill_status": "AA收款进度", "pay_split_bill": "AA收款入账",
     "list_contacts": "联系人查询", "add_contact": "添加联系人",
     "wealth_products": "理财查询", "wealth_compare": "理财对比", "wealth_recommend": "理财推荐", "risk_assessment": "风险评估",
+    "risk_questionnaire": "风险评估问卷", "risk_submit": "风险评估提交",
     "buy_wealth": "理财申购", "redeem_wealth": "理财赎回",
     "apply_virtual_card": "虚拟卡申请", "adjust_card_limit": "额度调整",
     "report_card_loss": "卡片挂失", "unlock_card": "卡片解挂",
@@ -216,6 +219,26 @@ class AgentOrchestrator:
         self._log("(系统定时触发)", "", {}, "", "system", "",
                   f"定时器拨动{('@' + sim_date) if sim_date else ''}：{text}")
         return AgentReply("auto", text)
+
+    def submit_risk(self, answers: dict, user_id: int = 1) -> AgentReply:
+        """风险评估问卷提交（前端答题 → 系统计分判定，绿级自动执行 + 全量审计）。
+        不走 LLM（问卷交互在前端），但复用权限门语义与审计链路，保证"所有关键操作可追溯"。"""
+        if self.user_state.get("locked"):
+            out = AgentReply("deny", "⚠ 账户已安全锁定，请重置会话或联系人工接管")
+            self._log("提交风险评估问卷", "risk_submit", answers, "green", "lockout", "", out.message)
+            return out
+        r = self.service.risk_submit(user_id, answers)
+        if not r.ok:
+            return AgentReply("chat", r.message)
+        d = r.data
+        matched = "、".join(p["name"] for p in d["matched_products"])
+        self._log("提交风险评估问卷", "risk_submit", answers, "green", "auto", "",
+                  f"{d['level_cn']}（{d['score']} 分），适配：{matched}")
+        return AgentReply(
+            "auto",
+            f"风险评估完成：{d['level_cn']}（{d['score']} 分）。适配产品：{matched}。{d['advice']} {d['risk_warning']}",
+            tool="risk_submit", data=d,
+        )
 
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:
@@ -614,6 +637,9 @@ def _summarize(tool: str, r) -> str:
     if tool == "risk_assessment":
         matched = "、".join(p["name"] for p in d["matched_products"])
         return f"风险评估：{d['level_cn']}（{d['level']}）。适配产品：{matched}。建议：{d['advice']}"
+    if tool == "risk_submit":
+        matched = "、".join(p["name"] for p in d["matched_products"])
+        return f"风险评估完成：{d['level_cn']}（{d['score']} 分）。适配产品：{matched}。{d['advice']} {d['risk_warning']}"
     if tool == "wealth_recommend":
         recs = "；".join(
             f"{r['name']}（年化{r['expected_return'] * 100:.1f}%，参考投入 {r['suggest_amount_cents'] / 100:.2f} 元，"

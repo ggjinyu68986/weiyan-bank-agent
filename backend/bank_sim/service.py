@@ -680,18 +680,97 @@ class BankService:
         )
 
     # ========== 场景3 扩展：风险评估 / 产品对比 ==========
+    # KYC 适当性问卷（风险评估）：6 题，每题 1-4 分，总分 6-24
+    RISK_QUESTIONS = [
+        {"id": "q1", "text": "您的投资经验有多久？",
+         "options": [{"label": "没有经验", "score": 1}, {"label": "1-3 年", "score": 2},
+                     {"label": "3-5 年", "score": 3}, {"label": "5 年以上", "score": 4}]},
+        {"id": "q2", "text": "您的投资目标更偏向？",
+         "options": [{"label": "保本优先", "score": 1}, {"label": "略高于存款利息", "score": 2},
+                     {"label": "跑赢通胀", "score": 3}, {"label": "追求高收益", "score": 4}]},
+        {"id": "q3", "text": "您能承受的最大本金亏损？",
+         "options": [{"label": "不能接受亏损", "score": 1}, {"label": "10% 以内", "score": 2},
+                     {"label": "10%-30%", "score": 3}, {"label": "30% 以上", "score": 4}]},
+        {"id": "q4", "text": "这笔资金预计多久不需要使用？",
+         "options": [{"label": "随时可能动用", "score": 1}, {"label": "1 年以内", "score": 2},
+                     {"label": "1-3 年", "score": 3}, {"label": "3 年以上", "score": 4}]},
+        {"id": "q5", "text": "您的收入稳定性如何？",
+         "options": [{"label": "不太稳定", "score": 1}, {"label": "一般", "score": 2},
+                     {"label": "比较稳定", "score": 3}, {"label": "非常稳定", "score": 4}]},
+        {"id": "q6", "text": "您对金融产品的了解程度？",
+         "options": [{"label": "不太了解", "score": 1}, {"label": "了解一些", "score": 2},
+                     {"label": "比较熟悉", "score": 3}, {"label": "专业水平", "score": 4}]},
+    ]
+
+    @staticmethod
+    def _risk_level_of(score: int) -> tuple[str, str]:
+        if score <= 9:
+            return "low", "保守稳健型"
+        if score <= 14:
+            return "mid", "稳健平衡型"
+        if score <= 19:
+            return "midhigh", "平衡成长型"
+        return "high", "积极进取型"
+
+    def risk_questionnaire(self) -> OpResult:
+        """风险评估问卷（KYC 适当性）：返回 6 题与选项（前端答题弹层数据源）。"""
+        return OpResult.success({"questions": self.RISK_QUESTIONS, "score_range": [6, 24]},
+                                message="风险评估问卷")
+
+    def risk_submit(self, user_id: int, answers: dict) -> OpResult:
+        """提交问卷答案：计分 → 判定风险等级 → 保存画像 → 返回适配产品与风险提示（绿级只读评估）。"""
+        score = 0
+        for q in self.RISK_QUESTIONS:
+            v = answers.get(q["id"])
+            if v is None:
+                return OpResult.error("INCOMPLETE_ANSWERS", f"未作答：{q['text']}")
+            opts = {o["label"]: o["score"] for o in q["options"]}
+            if v not in opts:
+                return OpResult.error("INVALID_ANSWER", f"无效选项：{v}")
+            score += opts[v]
+        level, level_cn = self._risk_level_of(score)
+        matched = [p for p in self.store.products.values() if p.risk_level == level] or             [p for p in self.store.products.values() if p.risk_level == "mid"]
+        self.store.risk_profiles[user_id] = {
+            "level": level, "level_cn": level_cn, "score": score,
+            "answered_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        advice = {
+            "low": "建议以低风险固收类为主，可搭配稳健理财（年化 2.5%）。",
+            "mid": "建议固收打底 + 平衡型配置（年化 4.5% 档），控制权益类占比。",
+            "midhigh": "可配置平衡型与进取型组合，注意控制单一产品集中度。",
+            "high": "可适当配置进取型产品（年化 7.5% 档），同时保留流动性缓冲。",
+        }[level]
+        warning = "理财非存款，产品有风险，历史收益不代表未来表现；请按评估结果在适配范围内投资。"
+        return OpResult.success(
+            {
+                "user_id": user_id,
+                "level": level,
+                "level_cn": level_cn,
+                "score": score,
+                "matched_products": [p.model_dump(mode="json") for p in matched],
+                "advice": advice,
+                "risk_warning": warning,
+            },
+            message=f"风险评估完成：{level_cn}（{score} 分）",
+        )
+
     def risk_assessment(self, user_id: int = 1) -> OpResult:
-        """风险评估：返回用户风险等级与适配产品（种子画像默认稳健型，可扩展问卷）。"""
-        level = "low"  # 演示：小明画像 = 低风险（保守稳健）
-        level_cn = "保守稳健型"
-        matched = [p for p in self.store.products.values() if p.risk_level == level]
+        """风险评估查询：返回用户当前风险等级与适配产品（未做问卷时按保守稳健默认并提示）。"""
+        profile = self.store.risk_profiles.get(user_id)
+        if profile:
+            level, level_cn = profile["level"], profile["level_cn"]
+        else:
+            level, level_cn = "low", "保守稳健型"
+        matched = [p for p in self.store.products.values() if p.risk_level == level] or             [p for p in self.store.products.values() if p.risk_level == "mid"]
+        note = "" if profile else "（尚未完成问卷，暂按保守稳健型处理，建议先完成风险评估）"
+        advice = "建议以低风险固收类为主，可搭配稳健理财（年化 2.5%）。" if not profile else "基于问卷结果给出适配建议，可在理财页查看推荐配置。"
         return OpResult.success(
             {
                 "user_id": user_id,
                 "level": level,
                 "level_cn": level_cn,
                 "matched_products": [p.model_dump(mode="json") for p in matched],
-                "advice": "建议以低风险固收类为主，可搭配稳健理财（年化 2.5%）。",
+                "advice": advice + note,
             },
             message="风险评估完成",
         )

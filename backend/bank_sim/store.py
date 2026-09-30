@@ -39,6 +39,8 @@ class BankStore:
         self.scheduled_transfers: dict[str, ScheduledTransfer] = {}
         self.split_bills: dict[str, SplitBill] = {}
         self.orders: dict[str, Order] = {}
+        # 风险画像（KYC 问卷结果）：user_id -> {level, level_cn, score, answered_at}
+        self.risk_profiles: dict[int, dict] = {}
         self._tx_seq = 0
 
     def next_tx_id(self) -> str:

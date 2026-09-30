@@ -206,6 +206,18 @@
       "name_cn": "理财推荐",
       "category": "理财",
       "risk": "green"
+    },
+    {
+      "tool": "risk_questionnaire",
+      "name_cn": "风险评估问卷",
+      "category": "理财",
+      "risk": "green"
+    },
+    {
+      "tool": "risk_submit",
+      "name_cn": "风险评估提交",
+      "category": "理财",
+      "risk": "green"
     }
   ]
 }
