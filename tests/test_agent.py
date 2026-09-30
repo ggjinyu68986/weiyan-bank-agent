@@ -327,11 +327,14 @@ def test_annual_report_via_agent():
 
 
 def test_risk_assessment_via_agent():
+    """做风险评估 → 触发对话问卷；查询风险等级 → risk_assessment 工具。"""
     o = make()
     r = o.handle("帮我做个风险评估")
-    assert r.requires == "auto"
-    assert "风险评估" in r.message
-    assert "保守稳健型" in r.message
+    assert r.requires == "chat" and "1/6" in r.message  # 触发逐题问卷
+    o.handle("取消")
+    r2 = o.handle("我的风险评估是什么")
+    assert r2.requires == "auto"
+    assert "风险评估" in r2.message
 
 
 def test_wealth_compare_via_agent():
@@ -561,6 +564,24 @@ def test_risk_quiz_conversation():
     assert any(rec.tool == "risk_submit" for rec in o.audit)
     # 状态已清空，可重新触发
     assert o.handle("做风险评估").requires == "chat"
+
+
+def test_risk_quiz_colloquial_trigger():
+    """口语变体「想做一下风险评估/我想测评一下风险」也应触发问卷（不走 LLM）。"""
+    o = AgentOrchestrator(llm=MockLLM())
+    r = o.handle("想做一下风险评估")
+    assert r.requires == "chat" and "1/6" in r.message
+    r = o.handle("测评一下")  # 问卷进行中：非取消词、非选项 → 重问当前题，不退出问卷
+    assert r.requires == "chat" and "请从以下选项" in r.message
+    r = o.handle("取消")
+    assert "已取消" in r.message
+
+
+def test_risk_quiz_not_triggered_for_query():
+    """查询意图（含排除词）不触发问卷，走正常 Agent 流程。"""
+    o = AgentOrchestrator(llm=MockLLM())
+    r = o.handle("看看我的风险等级是多少")
+    assert not (r.requires == "chat" and "1/6" in r.message)
 
 
 def test_risk_quiz_invalid_then_cancel():

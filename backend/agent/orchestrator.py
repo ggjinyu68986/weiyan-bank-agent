@@ -158,7 +158,9 @@ MFA_FAIL_LIMIT = 3  # 连续输错验证码
 SUSPICIOUS_LIMIT = 3  # 连续注入/越权试探
 
 # 对话式风险评估问卷触发词（命中后系统逐题询问，不走 LLM 解析，保证选项准确）
-RISK_QUIZ_TRIGGERS = ("做风险评估", "风险测评", "风险问卷", "测一测风险", "评估风险等级")
+RISK_QUIZ_TRIGGERS = ("做风险评估", "做一下风险评估", "风险测评", "风险问卷", "测一测", "测评", "评估一下", "风险评估")
+# 含查询意图时不算"开始问卷"（如"查风险评估结果/我的风险等级"走 LLM 查询）
+RISK_QUIZ_EXCLUDE = ("查看", "看看", "查询", "结果", "等级", "我的风险")
 
 
 class AgentOrchestrator:
@@ -293,7 +295,7 @@ class AgentOrchestrator:
             self.history.append({"role": "user", "content": user_msg})
             self.history.append({"role": "assistant", "content": out.message})
             return out
-        if any(k in user_msg for k in RISK_QUIZ_TRIGGERS):
+        if any(k in user_msg for k in RISK_QUIZ_TRIGGERS) and not any(e in user_msg for e in RISK_QUIZ_EXCLUDE):
             st["risk_quiz"] = {"answers": {}, "q_index": 0}
             q0 = self.service.RISK_QUESTIONS[0]
             self._log(user_msg, "risk_quiz", {}, "green", "quiz", "", "开始风险评估问卷（1/6）")
