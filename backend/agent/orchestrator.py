@@ -22,7 +22,7 @@ from backend.security.permission import (
     decide,
 )
 
-from .llm import BaseLLM, build_llm
+from .llm import BaseLLM, build_llm, LLMReply
 from .prompts import SYSTEM_PROMPT, build_tool_schemas
 from .timeexpr import resolve as resolve_time_expr
 from .decision import ACTION_TO_GRADE, DecisionEngine, Verdict, _merge_grade
@@ -296,6 +296,11 @@ class AgentOrchestrator:
             f"已记录（{quiz['q_index']}/6）。下一题：{nq['text']}\n请回复选项文字或序号，或直接点下方选项：{'、'.join(o['label'] for o in nq['options'])}",
             data={"quiz": {"q_index": quiz["q_index"] + 1, "total": len(self.service.RISK_QUESTIONS),
                           "text": nq["text"], "options": [o["label"] for o in nq["options"]]}})
+
+    def request_operation(self, tool: str, params: dict) -> AgentReply:
+        """确定性操作入口（按钮一键，不依赖 LLM）：工具 → 权限门 → 确认/MFA → 执行，与对话同一审计链路。"""
+        reply = LLMReply(tool_calls=[{"name": tool, "arguments": params}])
+        return self._route_tool(reply, f"[按钮] {tool}", self.user_state)
 
     # ---------- 主入口 ----------
     def handle(self, user_msg: str, user_state: dict | None = None) -> AgentReply:

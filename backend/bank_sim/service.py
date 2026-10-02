@@ -858,14 +858,14 @@ class BankService:
         card = self.store.cards.get(card_id)
         if not card:
             return OpResult.error("CARD_NOT_FOUND", f"卡片不存在：{card_id}")
-        card.locked = True
+        card.status, card.locked = "frozen", True
         return OpResult.success({"card_id": card_id, "status": "frozen"}, message="卡片已冻结（暂停交易）")
 
     def unfreeze_card(self, card_id: str) -> OpResult:
         card = self.store.cards.get(card_id)
         if not card:
             return OpResult.error("CARD_NOT_FOUND", f"卡片不存在：{card_id}")
-        card.locked = False
+        card.status, card.locked = "active", False
         return OpResult.success({"card_id": card_id, "status": "active"}, message="卡片已解冻（恢复交易）")
 
     # ========== 内部 ==========

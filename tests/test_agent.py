@@ -594,6 +594,83 @@ class WealthToolLLM(MockLLM):
         return LLMReply(tool_calls=[{"name": self.tool, "arguments": self.args}])
 
 
+def test_apply_virtual_card_confirm():
+    """虚拟卡申请（黄级确认）：工具路由 → confirm → 执行。"""
+    o = make()
+    o.llm = WealthToolLLM("apply_virtual_card", {"user_id": 1})
+    r = o.handle("申请一张虚拟卡")
+    assert r.requires == "confirm" and r.pending_id
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto" and "虚拟卡" in out.message
+    assert any(rec.tool == "apply_virtual_card" for rec in o.audit)
+
+
+def test_adjust_card_limit_mfa():
+    """额度调整（红级强验证）：工具路由 → MFA → 执行，日限额生效。"""
+    o = make()
+    o.llm = WealthToolLLM("adjust_card_limit", {"card_id": "C-0001", "new_limit_cents": 500000})
+    r = o.handle("把C-0001日限额调整为5000元")
+    assert r.requires == "mfa" and r.pending_id
+    out = o.authorize(r.pending_id, mfa_code="123456")
+    assert out.requires == "auto" and "5000.00" in out.message
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.daily_limit_cents == 500000
+    assert any(rec.tool == "adjust_card_limit" for rec in o.audit)
+
+
+def test_unlock_card_mfa():
+    """卡片解挂（红级强验证）：挂失后解挂，状态恢复 active。"""
+    o = make()
+    o.llm = WealthToolLLM("report_card_loss", {"card_id": "C-0001"})
+    r = o.handle("挂失卡片C-0001")
+    assert r.requires == "mfa"
+    out = o.authorize(r.pending_id, mfa_code="123456")
+    assert out.requires == "auto" and "lost" in out.message
+    o.llm = WealthToolLLM("unlock_card", {"card_id": "C-0001"})
+    r2 = o.handle("解除挂失C-0001")
+    assert r2.requires == "mfa"
+    out2 = o.authorize(r2.pending_id, mfa_code="123456")
+    assert out2.requires == "auto"
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "active"
+
+
+def test_card_op_deterministic():
+    """按钮确定性路由（不依赖 LLM）：冻结→确认；挂失→MFA；额度调整→MFA。"""
+    o = make()
+    r = o.request_operation("freeze_card", {"card_id": "C-0001"})
+    assert r.requires == "confirm" and r.pending_id
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto" and "冻结" in out.message
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "frozen"
+
+    r2 = o.request_operation("unfreeze_card", {"card_id": "C-0001"})
+    assert r2.requires == "confirm"
+    out2 = o.confirm(r2.pending_id)
+    assert out2.requires == "auto"
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "active"
+
+    r3 = o.request_operation("report_card_loss", {"card_id": "C-0001"})
+    assert r3.requires == "mfa"
+    out3 = o.authorize(r3.pending_id, mfa_code="123456")
+    assert out3.requires == "auto" and "lost" in out3.message
+
+    r4 = o.request_operation("unlock_card", {"card_id": "C-0001"})
+    assert r4.requires == "mfa"
+    out4 = o.authorize(r4.pending_id, mfa_code="123456")
+    assert out4.requires == "auto"
+
+    r5 = o.request_operation("adjust_card_limit", {"card_id": "C-0001", "new_limit_cents": 300000})
+    assert r5.requires == "mfa"
+    out5 = o.authorize(r5.pending_id, mfa_code="123456")
+    assert out5.requires == "auto" and "3000.00" in out5.message
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "active" and card.daily_limit_cents == 300000
+    assert any(rec.tool == "adjust_card_limit" for rec in o.audit)
+
+
 def test_buy_wealth_mfa():
     """一键申购（红级强验证）：模型调 buy_wealth → MFA → 执行，余额扣减、持仓增加。"""
     o = make()

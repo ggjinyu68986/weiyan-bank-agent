@@ -169,6 +169,27 @@ def agent_confirm(req: ConfirmRequest, user: str = DEFAULT_USER):
     return _reply(agent_for(user).confirm(req.pending_id))
 
 
+class CardOpRequest(BaseModel):
+    action: str  # freeze / unfreeze / lock / unlock / limit / apply
+    card_id: str | None = None
+    amount_cents: int | None = None
+
+
+@app.post("/api/v1/agent/card-op")
+def agent_card_op(req: CardOpRequest, user: str = DEFAULT_USER):
+    """卡片管理确定性操作（按钮一键，不依赖模型）：权限门 → 确认/MFA → 执行，审计与对话同源。"""
+    mapping = {
+        "freeze": ("freeze_card", {"card_id": req.card_id}),
+        "unfreeze": ("unfreeze_card", {"card_id": req.card_id}),
+        "lock": ("report_card_loss", {"card_id": req.card_id}),
+        "unlock": ("unlock_card", {"card_id": req.card_id}),
+        "limit": ("adjust_card_limit", {"card_id": req.card_id, "new_limit_cents": req.amount_cents}),
+        "apply": ("apply_virtual_card", {"user_id": VIEW_USERS.get(user, (1,))[0]}),
+    }
+    tool, params = mapping[req.action]
+    return _reply(agent_for(user).request_operation(tool, params))
+
+
 @app.post("/api/v1/agent/authorize")
 def agent_authorize(req: AuthorizeRequest, user: str = DEFAULT_USER):
     return _reply(agent_for(user).authorize(req.pending_id, req.mfa_code))

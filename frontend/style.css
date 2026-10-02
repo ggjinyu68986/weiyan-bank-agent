@@ -251,6 +251,18 @@ body {
 .panel-title { font-size: 13px; font-weight: 700; color: var(--blue-deep); margin-bottom: 8px; }
 .bill-chart { width: 100%; height: 210px; margin-bottom: 12px; }
 
+/* ===== 卡片操作 ===== */
+.card-actions { display: flex; gap: 6px; margin-top: 8px; }
+.ca-btn { font-size: 12px; border: 1px solid #D7E1F0; background: #F6F9FE; color: #334155;
+  border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.ca-btn.red { color: #fff; background: linear-gradient(135deg, #E11D48, #F97316); border: none; }
+.ca-btn:hover { border-color: var(--blue-deep); }
+.limit-modal { width: 320px; }
+.limit-card { font-size: 12.5px; color: #6B7280; margin: 4px 0 10px; }
+.limit-input { width: 100%; box-sizing: border-box; padding: 10px 12px; font-size: 14px;
+  border: 1px solid #D7E1F0; border-radius: 10px; outline: none; }
+.limit-input:focus { border-color: var(--blue-deep); }
+
 /* ===== 对话问卷点选卡 ===== */
 .quiz-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .quiz-opt-btn { flex: 1 1 46%; text-align: left; font-size: 13px; color: #1F2937;

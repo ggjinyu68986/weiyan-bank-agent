@@ -193,6 +193,19 @@
   </nav>
 </div>
 
+<!-- 卡片额度调整弹层 -->
+<div id="cardLimitMask" class="mask hidden">
+  <div class="modal limit-modal">
+    <div class="modal-title">调整卡片日限额</div>
+    <div id="limitCardInfo" class="limit-card"></div>
+    <input id="limitInput" class="limit-input" type="number" min="1" placeholder="输入新的日限额（元），如 5000">
+    <div class="modal-actions">
+      <button id="limitCancel" class="btn ghost">取消</button>
+      <button id="limitOk" class="btn primary">确认调整</button>
+    </div>
+  </div>
+</div>
+
 <!-- 风险评估问卷弹层 -->
 <div id="riskMask" class="mask hidden">
   <div class="modal risk-modal">

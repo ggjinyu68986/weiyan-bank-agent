@@ -704,15 +704,67 @@
           var statusText = c.status === "active" ? "正常" : c.status === "frozen" ? "已冻结" : c.status === "lost" ? "已挂失" : c.status;
           var cls = (c.status === "active") ? "active" : "lost";
           var cardNo = c.id + " · " + (c.card_type === "virtual" ? "虚拟卡" : "借记卡");
+          var actions = "";
+          if (c.status === "active") {
+            actions = '<button class="ca-btn" data-op="freeze" data-card="' + c.id + '">冻结</button>' +
+              '<button class="ca-btn" data-limit="' + c.id + '" data-cur="' + c.daily_limit_cents + '">额度调整</button>' +
+              '<button class="ca-btn red" data-op="lock" data-card="' + c.id + '">挂失</button>';
+          } else if (c.status === "frozen") {
+            actions = '<button class="ca-btn" data-op="unfreeze" data-card="' + c.id + '">解冻</button>';
+          } else if (c.status === "lost") {
+            actions = '<button class="ca-btn red" data-op="unlock" data-card="' + c.id + '">解挂</button>';
+          }
           return '<div class="bank-card">' +
             '<div class="card-top"><span>' + cardNo + '</span><span class="badge2 ' + cls + '">' + statusText + "</span></div>" +
             '<div class="card-no">•••• •••• •••• ' + c.id.slice(-4) + "</div>" +
             '<div class="card-bottom"><span>日限额 ' + fmtNum(c.daily_limit_cents) + " 元</span>" +
-            (c.locked ? '<span style="color:#FECACA">已锁定</span>' : "<span>持卡人：小明</span>") + "</div></div>";
+            (c.locked ? '<span style="color:#FECACA">已锁定</span>' : "<span>持卡人：小明</span>") + "</div>" +
+            '<div class="card-actions">' + actions + "</div></div>";
         }).join("");
+        bindCardOps();
       });
   }
-  document.getElementById("btnAddCard").onclick = function () { quickSend("申请一张虚拟卡"); };
+  function cardOp(action, cardId, amountCents) {
+    addTyping();
+    fetch(API + "/agent/card-op", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: action, card_id: cardId, amount_cents: amountCents }),
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      removeTyping();
+      renderReply(res);
+      loadCards();  // 状态变化后刷新卡片列表
+    }).catch(function () {
+      removeTyping();
+      addAssistant("操作失败，请确认后端已启动。", { deny: true });
+    });
+  }
+  function bindCardOps() {
+    document.querySelectorAll("#tab-card .ca-btn").forEach(function (b) {
+      if (b.dataset.op) {
+        b.onclick = function () { cardOp(b.dataset.op, b.dataset.card); };
+      }
+      if (b.dataset.limit) {
+        b.onclick = function () {
+          document.getElementById("limitCardInfo").textContent = b.dataset.limit + " · 当前日限额 " + fmtNum(Number(b.dataset.cur)) + " 元";
+          document.getElementById("limitInput").value = "";
+          document.getElementById("cardLimitMask").classList.remove("hidden");
+          document.getElementById("limitInput").focus();
+        };
+      }
+    });
+  }
+  document.getElementById("limitOk").onclick = function () {
+    var v = Number(document.getElementById("limitInput").value);
+    var card = document.getElementById("limitCardInfo").textContent.split(" ")[0];
+    if (!v || v <= 0) { document.getElementById("limitInput").focus(); return; }
+    document.getElementById("cardLimitMask").classList.add("hidden");
+    cardOp("limit", card, Math.round(v * 100));
+  };
+  document.getElementById("limitCancel").onclick = function () {
+    document.getElementById("cardLimitMask").classList.add("hidden");
+  };
+  document.getElementById("btnAddCard").onclick = function () { cardOp("apply"); };
 
   /* ========== 联系人 Tab ========== */
   function loadContacts() {
