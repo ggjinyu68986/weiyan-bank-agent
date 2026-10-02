@@ -285,6 +285,8 @@ body {
 .wc-meta { font-size: 12px; color: #6B7280; margin-bottom: 8px; }
 .wc-meta b { color: var(--blue-deep); font-size: 13px; }
 .wc-actions { display: flex; gap: 8px; }
+.wc-btn.red { color: #fff; background: linear-gradient(135deg, #E11D48, #F97316); }
+.wc-btn.red:hover { opacity: .85; }
 .wc-btn { flex: 1; }
 .risk { font-size: 10.5px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
 .risk-low { background: #E6F7EF; color: #0E9F6E; }

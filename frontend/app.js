@@ -481,9 +481,12 @@
         } else {
           holdEl.innerHTML = d.holdings.map(function (h) {
             var p = d.products.find(function (x) { return x.id === h.product_id; });
-            return '<div class="wealth-held"><b>' + (p ? p.name : h.product_id) + "</b>" +
-              '<span>持有 ' + fmtNum(h.amount_cents) + " 元</span></div>";
+            var nm = p ? p.name : h.product_id;
+            return '<div class="wealth-held"><b>' + nm + "</b>" +
+              '<span>持有 ' + fmtNum(h.amount_cents) + " 元</span>" +
+              '<button class="op wc-btn red" data-msg="赎回 ' + fmtYuan(h.amount_cents) + " 元的" + nm + '">赎回</button></div>';
           }).join("");
+          bindWealthOps();
         }
         var other = d.products[1] || d.products[0];
         document.getElementById("wealthProducts").innerHTML = d.products.map(function (p) {

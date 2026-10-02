@@ -584,6 +584,56 @@ def test_risk_quiz_not_triggered_for_query():
     assert not (r.requires == "chat" and "1/6" in r.message)
 
 
+class WealthToolLLM(MockLLM):
+    """模拟模型调用理财操作工具。"""
+
+    def __init__(self, tool: str, args: dict):
+        self.tool, self.args = tool, args
+
+    def complete(self, messages, tools=None):
+        return LLMReply(tool_calls=[{"name": self.tool, "arguments": self.args}])
+
+
+def test_buy_wealth_mfa():
+    """一键申购（红级强验证）：模型调 buy_wealth → MFA → 执行，余额扣减、持仓增加。"""
+    o = make()
+    o.llm = WealthToolLLM("buy_wealth", {"user_id": 1, "product_id": "WP-001", "amount_cents": 100000})
+    r = o.handle("买1000元稳健天天利")
+    assert r.requires == "mfa" and r.pending_id
+    out = o.authorize(r.pending_id, mfa_code="123456")
+    assert out.requires == "auto" and "申购成功" in out.message and "1000.00" in out.message
+    assert o.service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 - 100_000
+    hold = next(x for x in o.service.store.holdings.values()
+                if x.user_id == 1 and x.product_id == "WP-001")
+    assert hold.amount_cents == 1_000_000 + 100_000  # 初始 1 万 + 新购 1 千
+    assert any(rec.tool == "buy_wealth" for rec in o.audit)
+
+
+def test_redeem_wealth_mfa():
+    """一键赎回（红级强验证）：模型调 redeem_wealth → MFA → 执行，持仓减少、余额回增。"""
+    o = make()
+    o.llm = WealthToolLLM("redeem_wealth", {"user_id": 1, "product_id": "WP-001", "amount_cents": 500000})
+    r = o.handle("赎回5000元稳健天天利")
+    assert r.requires == "mfa" and r.pending_id
+    out = o.authorize(r.pending_id, mfa_code="123456")
+    assert out.requires == "auto" and "赎回成功" in out.message and "5000.00" in out.message
+    assert o.service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 + 500_000
+    hold = next(x for x in o.service.store.holdings.values()
+                if x.user_id == 1 and x.product_id == "WP-001")
+    assert hold.amount_cents == 500_000  # 1 万 - 5 千
+    assert any(rec.tool == "redeem_wealth" for rec in o.audit)
+
+
+def test_redeem_exceed_holding_denied():
+    """赎回超持仓被拒绝（EXCEED_HOLDING），不透传假成功。"""
+    o = make()
+    o.llm = WealthToolLLM("redeem_wealth", {"user_id": 1, "product_id": "WP-001", "amount_cents": 5_000_000})
+    r = o.handle("赎回5万元稳健天天利")
+    assert r.requires == "mfa"
+    out = o.authorize(r.pending_id, mfa_code="123456")
+    assert out.requires in ("deny", "chat") and "超持仓" in out.message
+
+
 def test_risk_quiz_fuzzy_option_and_sequence():
     """选项容错：'5年以上'（无空格）→'5 年以上'；序号'2'→第 2 项；回复携带 data.quiz 供前端渲染。"""
     o = AgentOrchestrator(llm=MockLLM())
@@ -660,7 +710,7 @@ def test_query_failover_routes_when_llm_refuses():
     r = o.handle("帮我看看有哪些异常交易")
     assert r.requires == "auto"
     assert r.tool == "analyze_bills"
-    assert "3 笔异常" in r.message  # 真实数据（非编造）
+    assert "异常" in r.message  # 真实数据（非编造，笔数随模拟月份变化不断言）
     # 兜底不改安全边界：操作类绝不兜底自动执行，仍走确认/引导
     r2 = o.handle("给妈妈转800元")
     assert r2.requires in ("chat", "confirm")
