@@ -91,6 +91,23 @@ def test_annual_report_endpoint():
     assert len(d["top_categories"]) >= 1
 
 
+def test_subscriptions_endpoint():
+    """订阅列表端点 + 确定性取消/识别端点。"""
+    with TestClient(app) as c:
+        d = c.get("/api/v1/agent/subscriptions").json()
+        assert d["subscriptions"] and d["reminders"]
+        # 取消 → 黄色确认 → confirm → 执行
+        r = c.post("/api/v1/agent/subscription-op", json={"action": "cancel", "subscription_id": "S-001"}).json()
+        assert r["requires"] == "confirm" and r["pending_id"]
+        out = c.post("/api/v1/agent/confirm", json={"pending_id": r["pending_id"]}).json()
+        assert out["requires"] == "auto"
+        d2 = c.get("/api/v1/agent/subscriptions").json()
+        assert all(s["id"] != "S-001" for s in d2["subscriptions"])
+        # detect → 绿色自动
+        r3 = c.post("/api/v1/agent/subscription-op", json={"action": "detect"}).json()
+        assert r3["requires"] == "auto"
+
+
 def test_wealth_endpoints():
     """理财端点：列表/推荐/对比（前端理财 Tab 数据源）。"""
     d = client.get("/api/v1/agent/wealth?user_id=1").json()

@@ -65,6 +65,7 @@
       if (t.dataset.tab === "cards") loadCards();
       if (t.dataset.tab === "contacts") loadContacts();
       if (t.dataset.tab === "wealth") { loadWealth(); loadRiskStatus(); }
+      if (t.dataset.tab === "subs") loadSubs();
       if (t.dataset.tab === "audit") loadAudit();
       if (t.dataset.tab === "chat") refreshAsset();
     };
@@ -391,6 +392,7 @@
     if (res.tool === "apply_virtual_card" || res.tool === "freeze_card" || res.tool === "unfreeze_card" ||
         res.tool === "report_card_loss" || res.tool === "unlock_card" || res.tool === "adjust_card_limit") {
       loadCards(); // 卡片页保持同步
+      if (document.querySelector("#tab-subs.active")) loadSubs();
     }
     if (res.requires === "auto" &&
         (res.tool === "split_bill" || res.tool === "pay_split_bill" || res.tool === "split_bill_status") &&
@@ -765,6 +767,68 @@
     document.getElementById("cardLimitMask").classList.add("hidden");
   };
   document.getElementById("btnAddCard").onclick = function () { cardOp("apply"); };
+
+  /* ========== 订阅 Tab ========== */
+  function fmtDays(days) {
+    if (days < 0) return "已逾期 " + (-days) + " 天";
+    if (days === 0) return "今天扣费";
+    return days + " 天后扣费";
+  }
+  function loadSubs() {
+    fetch(API + "/agent/subscriptions")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        // 续费提醒条
+        var rem = document.getElementById("subReminders");
+        if (!d.reminders.length) {
+          rem.innerHTML = '<div class="anomaly-empty">暂无待续费订阅</div>';
+        } else {
+          rem.innerHTML = d.reminders.map(function (s) {
+            var urgent = s.urgent ? "urgent" : "";
+            return '<div class="reminder-row ' + urgent + '"><span class="r-ico">' +
+              (s.urgent ? "🔔" : "⏰") + "</span><b>" + s.merchant + "</b> " +
+              fmtNum(s.amount_cents) + " 元/期 · " + fmtDays(s.days_left) +
+              '<span class="r-date">' + s.next_bill_date + "</span></div>";
+          }).join("");
+        }
+        // 订阅列表
+        var list = document.getElementById("subList");
+        if (!d.subscriptions.length) {
+          list.innerHTML = '<div class="anomaly-empty">暂无订阅</div>';
+          return;
+        }
+        list.innerHTML = d.subscriptions.map(function (s) {
+          return '<div class="sub-card"><div class="sub-top"><b>' + s.merchant + "</b>" +
+            '<button class="ca-btn red" data-sub="' + s.id + '" data-name="' + s.merchant + '">取消订阅</button></div>' +
+            '<div class="sub-meta">' + s.item + " · " + fmtNum(s.amount_cents) + " 元/期 · 下次扣费 " +
+            s.next_bill_date + "</div></div>";
+        }).join("");
+        bindSubOps();
+      });
+  }
+  function subOp(action, subscriptionId) {
+    addTyping();
+    fetch(API + "/agent/subscription-op", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: action, subscription_id: subscriptionId }),
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      removeTyping();
+      renderReply(res);
+      loadSubs();  // 取消后刷新列表
+    }).catch(function () {
+      removeTyping();
+      addAssistant("操作失败，请确认后端已启动。", { deny: true });
+    });
+  }
+  function bindSubOps() {
+    document.querySelectorAll("#tab-subs .ca-btn").forEach(function (b) {
+      if (b.dataset.sub) {
+        b.onclick = function () { subOp("cancel", b.dataset.sub); };
+      }
+    });
+  }
+  document.getElementById("btnSubDetect").onclick = function () { subOp("detect"); };
 
   /* ========== 联系人 Tab ========== */
   function loadContacts() {

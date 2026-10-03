@@ -169,6 +169,33 @@ def agent_confirm(req: ConfirmRequest, user: str = DEFAULT_USER):
     return _reply(agent_for(user).confirm(req.pending_id))
 
 
+class SubOpRequest(BaseModel):
+    action: str  # cancel / detect
+    subscription_id: str | None = None
+
+
+@app.get("/api/v1/agent/subscriptions")
+def agent_subscriptions(user: str = DEFAULT_USER):
+    """订阅列表 + 续费提醒（只读，绿色自动）。"""
+    uid = VIEW_USERS.get(user, (1,))[0]
+    subs = service.list_subscriptions(uid)
+    rem = service.subscription_reminders(uid)
+    if not subs.ok or not rem.ok:
+        raise HTTPException(status_code=500, detail="订阅数据读取失败")
+    return {"subscriptions": subs.data["subscriptions"], "reminders": rem.data["reminders"]}
+
+
+@app.post("/api/v1/agent/subscription-op")
+def agent_subscription_op(req: SubOpRequest, user: str = DEFAULT_USER):
+    """订阅确定性操作（按钮一键，不依赖模型）：cancel→黄色确认，detect→绿色自动，审计与对话同源。"""
+    mapping = {
+        "cancel": ("cancel_subscription", {"subscription_id": req.subscription_id}),
+        "detect": ("detect_subscriptions", {"account_id": VIEW_USERS.get(user, (1,))[1]}),
+    }
+    tool, params = mapping[req.action]
+    return _reply(agent_for(user).request_operation(tool, params))
+
+
 class CardOpRequest(BaseModel):
     action: str  # freeze / unfreeze / lock / unlock / limit / apply
     card_id: str | None = None

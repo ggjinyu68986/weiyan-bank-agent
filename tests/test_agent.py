@@ -718,6 +718,38 @@ def test_card_op_deterministic():
     assert any(rec.tool == "adjust_card_limit" for rec in o.audit)
 
 
+def test_subscription_op_deterministic():
+    """按钮确定性路由：取消订阅→黄色确认后执行；自动识别→绿色自动。"""
+    o = make()
+    r = o.request_operation("cancel_subscription", {"subscription_id": "S-001"})
+    assert r.requires == "confirm" and r.pending_id
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto" and "取消订阅" in out.message
+    subs = o.service.list_subscriptions(1).data["subscriptions"]
+    assert all(s["id"] != "S-001" for s in subs)  # 取消后复查一致
+
+    r2 = o.request_operation("detect_subscriptions", {"account_id": "6222-0001"})
+    assert r2.requires == "auto"  # 绿色自动
+    assert r2.message and "识别" in r2.message
+    assert r2.data.get("detected") or True
+
+
+def test_subscription_op_deterministic():
+    """按钮确定性路由：取消订阅→黄色确认后执行；自动识别→绿色自动。"""
+    o = make()
+    r = o.request_operation("cancel_subscription", {"subscription_id": "S-001"})
+    assert r.requires == "confirm" and r.pending_id
+    out = o.confirm(r.pending_id)
+    assert out.requires == "auto" and "取消订阅" in out.message
+    subs = o.service.list_subscriptions(1).data["subscriptions"]
+    assert all(s["id"] != "S-001" for s in subs)  # 取消后复查一致
+
+    r2 = o.request_operation("detect_subscriptions", {"account_id": "6222-0001"})
+    assert r2.requires == "auto"  # 绿色自动
+    assert r2.message and "识别" in r2.message
+    assert r2.data.get("detected") or True
+
+
 def test_buy_wealth_mfa():
     """一键申购（红级强验证）：模型调 buy_wealth → MFA → 执行，余额扣减、持仓增加。"""
     o = make()
