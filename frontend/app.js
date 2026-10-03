@@ -359,6 +359,40 @@
     if (res.requires === "deny" && res.message.indexOf("已安全锁定") >= 0) {
       refreshSecBadge();
     }
+    // 人工接管流程卡：锁定 → 转人工 → 工单 → 客服核实解锁
+    if (res.requires === "deny" && res.data && res.data.card === "lockout") {
+      var hc = document.createElement("div");
+      hc.className = "handoff-card";
+      hc.innerHTML = '<div class="hc-title">🔒 账户已安全锁定</div>' +
+        '<div class="hc-sub">' + res.message + "</div>" +
+        '<button class="hc-btn" id="btnHandoff">📞 转人工客服</button>';
+      chat.appendChild(hc);
+      scrollChat();
+      document.getElementById("btnHandoff").onclick = function () {
+        hc.innerHTML = '<div class="hc-title">📞 正在转接人工客服…</div><div class="hc-sub">请稍候</div>';
+        fetch(API + "/agent/handoff", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+          .then(function (r) { return r.json(); }).then(function (r2) {
+            var t = (r2.data && r2.data.ticket) || "";
+            hc.innerHTML = '<div class="hc-title">📞 人工客服已接管</div>' +
+              '<div class="hc-sub">服务工单号：<b>' + t + "</b></div>" +
+              '<div class="hc-sub">客服将核实您的身份后为您解锁账户。</div>' +
+              '<button class="hc-btn" id="btnResolve">✅ 客服核实完成，解锁账户</button>';
+            document.getElementById("btnResolve").onclick = function () {
+              hc.innerHTML = '<div class="hc-title">🕒 正在核实并解锁…</div>';
+              fetch(API + "/agent/handoff/resolve", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+                .then(function (r) { return r.json(); }).then(function (r3) {
+                  hc.innerHTML = '<div class="hc-title">✅ 账户已解锁</div><div class="hc-sub">' + r3.message + "</div>";
+                  refreshSecBadge();
+                  loadAudit();
+                }).catch(function () {
+                  hc.innerHTML = '<div class="hc-title">❌ 解锁失败</div><div class="hc-sub">请确认后端已启动</div>';
+                });
+            };
+          }).catch(function () {
+            hc.innerHTML = '<div class="hc-title">❌ 转接失败</div><div class="hc-sub">请确认后端已启动</div>';
+          });
+      };
+    }
     if (res.requires === "auto" && res.tool === "analyze_bills") {
       addAssistant("已生成账单图表，可点击底部「账单」查看可视化分析。");
       loadBills();

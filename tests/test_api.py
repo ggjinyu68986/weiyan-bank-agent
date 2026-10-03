@@ -108,6 +108,26 @@ def test_subscriptions_endpoint():
         assert r3["requires"] == "auto"
 
 
+def test_handoff_endpoints():
+    """人工接管端点：正常状态拒绝接管 → 锁定 → 工单 → 解锁。"""
+    with TestClient(app) as c:
+        r0 = c.post("/api/v1/agent/handoff").json()
+        assert r0["requires"] == "chat" and "无需" in r0["message"]
+        # 连续 3 次错 MFA 触发锁定（用真实业务：申请虚拟卡是 confirm 无 MFA → 用转账 MFA）
+        for _ in range(3):  # 每次重新发起操作再错 MFA（authorize 会消费 pending）
+            r1 = c.post("/api/v1/agent/chat", json={"message": "转 5 万元给妈妈"}).json()
+            assert r1["requires"] == "mfa"
+            c.post("/api/v1/agent/authorize", json={"pending_id": r1["pending_id"], "mfa_code": "000000"})
+        r2 = c.post("/api/v1/agent/chat", json={"message": "帮我看看余额"}).json()
+        assert r2["requires"] == "deny" and r2["data"]["card"] == "lockout"
+        r3 = c.post("/api/v1/agent/handoff").json()
+        assert r3["data"]["card"] == "handoff" and r3["data"]["ticket"].startswith("T-")
+        r4 = c.post("/api/v1/agent/handoff/resolve").json()
+        assert "解锁" in r4["message"]
+        r5 = c.post("/api/v1/agent/chat", json={"message": "帮我看看余额"}).json()
+        assert r5["requires"] == "auto"
+
+
 def test_wealth_endpoints():
     """理财端点：列表/推荐/对比（前端理财 Tab 数据源）。"""
     d = client.get("/api/v1/agent/wealth?user_id=1").json()

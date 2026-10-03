@@ -213,6 +213,34 @@ class AgentOrchestrator:
         self._pending = {}
         self.service.store.reset()
 
+    def handoff(self) -> AgentReply:
+        """人工接管：锁定后用户申请转人工客服 → 生成服务工单，等待客服核实（审计留痕）。"""
+        st = self.user_state
+        if not st.get("locked"):
+            return AgentReply("chat", "当前账户状态正常，无需人工接管。")
+        if st.get("handoff"):
+            return AgentReply("chat", f"已有人工接管工单在处理中（工单号 {st['handoff']['ticket']}），请耐心等待客服核实。",
+                              data={"card": "handoff", "ticket": st["handoff"]["ticket"]})
+        ticket = f"T-{len(self.audit) + 1:04d}"
+        st["handoff"] = {"ticket": ticket, "ts": datetime.now().isoformat()}
+        msg = f"已为您转接人工客服，服务工单号 {ticket}。客服将核实您的身份后为您解锁账户。"
+        self._log("(人工接管申请)", "", {}, "red", "handoff", "", msg)
+        self.history.append({"role": "assistant", "content": msg})
+        return AgentReply("chat", msg, data={"card": "handoff", "ticket": ticket})
+
+    def handoff_resolve(self) -> AgentReply:
+        """人工接管：客服核实身份完成 → 解锁账户并清零熔断计数（审计留痕，支持演示闭环）。"""
+        st = self.user_state
+        if not st.get("handoff"):
+            return AgentReply("chat", "没有待处理的人工接管工单，无需解锁。")
+        ticket = st["handoff"]["ticket"]
+        st.update({"locked": False, "mfa_failures": 0, "suspicious_count": 0})
+        st.pop("handoff", None)
+        msg = f"客服已核实身份（工单 {ticket}），账户解锁成功，安全计数已清零。"
+        self._log("(客服核实解锁)", "", {}, "red", "handoff_resolve", "", msg)
+        self.history.append({"role": "assistant", "content": msg})
+        return AgentReply("chat", msg)
+
     def status(self) -> dict:
         """会话安全状态（前端展示 / 熔断演示）。"""
         return {
@@ -311,7 +339,8 @@ class AgentOrchestrator:
         st = user_state or self.user_state
         # 异常熔断：锁定后全部操作拒绝（含查询），审计留痕
         if st.get("locked"):
-            out = AgentReply("deny", "⚠ 账户已安全锁定（连续验证失败或可疑行为），请重置会话或联系人工接管")
+            out = AgentReply("deny", "⚠ 账户已安全锁定（连续验证失败或可疑行为），请重置会话或联系人工接管",
+                             data={"card": "lockout"})
             self._log(user_msg, "", {}, "", "lockout", "", out.message)
             self.history.append({"role": "assistant", "content": out.message})
             return out

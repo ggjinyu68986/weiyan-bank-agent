@@ -753,6 +753,39 @@ def test_birthday_plan_abort_midway():
     assert len(o.service.store.orders) == 0  # 未执行节点没有副作用
 
 
+def test_handoff_full_flow():
+    """人工接管闭环：连续 MFA 失败锁定 → 拒绝 + lockout 卡片 → 申请接管（工单）→ 客服核实解锁清零。"""
+    o = make()
+    # 每次错误后 pending 被消费，需重新发起操作再错 MFA（第 3 次错误 → 锁定）
+    for _ in range(3):
+        rq = o.request_operation("buy_wealth", {"user_id": 1, "product_id": "WP-001", "amount_cents": 10000})
+        assert rq.requires == "mfa"
+        r4 = o.authorize(rq.pending_id, mfa_code="000000")
+    assert o.user_state["locked"]
+    assert "锁定" in r4.message
+    # 锁定后任何操作被拒绝，且带 lockout 卡片标记
+    r5 = o.handle("帮我看看余额")
+    assert r5.requires == "deny" and r5.data.get("card") == "lockout"
+    # 申请人工接管
+    r6 = o.handoff()
+    assert r6.data.get("card") == "handoff" and r6.data.get("ticket", "").startswith("T-")
+    ticket = r6.data["ticket"]
+    # 重复申请 → 返回同一工单
+    r7 = o.handoff()
+    assert ticket in r7.message
+    # 客服核实解锁 → 计数清零、锁定解除
+    r8 = o.handoff_resolve()
+    assert "解锁" in r8.message
+    st = o.user_state
+    assert not st["locked"] and st["mfa_failures"] == 0 and st["suspicious_count"] == 0
+    # 审计留痕
+    assert any(rec.action == "handoff" for rec in o.audit)
+    assert any(rec.action == "handoff_resolve" for rec in o.audit)
+    # 解锁后正常操作恢复
+    r9 = o.handle("帮我看看余额")
+    assert r9.requires == "auto"
+
+
 def test_birthday_event_engine_trigger():
     """事件引擎：拨动时间到生日前 2 天（12/18）→ 自动订购鲜花+蛋糕。"""
     o = make()

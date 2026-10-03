@@ -222,6 +222,18 @@ def agent_authorize(req: AuthorizeRequest, user: str = DEFAULT_USER):
     return _reply(agent_for(user).authorize(req.pending_id, req.mfa_code))
 
 
+@app.post("/api/v1/agent/handoff")
+def agent_handoff(user: str = DEFAULT_USER):
+    """人工接管：锁定后申请转人工（生成工单，等待客服核实解锁）。"""
+    return _reply(agent_for(user).handoff())
+
+
+@app.post("/api/v1/agent/handoff/resolve")
+def agent_handoff_resolve(user: str = DEFAULT_USER):
+    """人工接管：客服核实完成 → 解锁账户（安全计数清零，审计留痕）。"""
+    return _reply(agent_for(user).handoff_resolve())
+
+
 @app.post("/api/v1/agent/reset")
 def agent_reset():
     _rebuild_agents()
