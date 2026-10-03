@@ -718,20 +718,24 @@ def test_card_op_deterministic():
     assert any(rec.tool == "adjust_card_limit" for rec in o.audit)
 
 
-def test_subscription_op_deterministic():
-    """按钮确定性路由：取消订阅→黄色确认后执行；自动识别→绿色自动。"""
-    o = make()
-    r = o.request_operation("cancel_subscription", {"subscription_id": "S-001"})
-    assert r.requires == "confirm" and r.pending_id
-    out = o.confirm(r.pending_id)
-    assert out.requires == "auto" and "取消订阅" in out.message
-    subs = o.service.list_subscriptions(1).data["subscriptions"]
-    assert all(s["id"] != "S-001" for s in subs)  # 取消后复查一致
+def test_subscription_reminder_failover_no_fabrication():
+    """模型未调工具时，"续费提醒" 规则兜底 → subscription_reminders 真实数据（不编造日期）。"""
+    o = make()  # MockLLM：纯文本不调工具
+    out = o.handle("续费提醒")
+    assert out.requires == "auto"
+    assert "续费提醒" in out.message and "即将到期" in out.message  # 真实提醒（无编造日期）
+    assert "2026-10-31" not in out.message  # 非模型编造日期（seed 真实是 10-05/08/12）
+    assert any(rec.tool == "subscription_reminders" for rec in o.audit)  # 真实工具执行（failover 或模型直调）
 
-    r2 = o.request_operation("detect_subscriptions", {"account_id": "6222-0001"})
-    assert r2.requires == "auto"  # 绿色自动
-    assert r2.message and "识别" in r2.message
-    assert r2.data.get("detected") or True
+
+def test_cancel_subscription_misroute_guided():
+    """取消订阅意图 + 模型误调查询工具 → 引导指定项目（不执行查询、不自动取消）。"""
+    o = make()
+    o.llm = WealthToolLLM("list_subscriptions", {"user_id": 1})  # 模型错误地调查询工具
+    out = o.handle("取消某某视频的订阅")
+    assert out.requires == "chat" and "具体项目" in out.message
+    subs = o.service.list_subscriptions(1).data["subscriptions"]
+    assert len(subs) == 3  # 未发生取消（安全底线：不自动执行操作）
 
 
 def test_subscription_op_deterministic():

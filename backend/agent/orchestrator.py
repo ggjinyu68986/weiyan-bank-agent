@@ -357,6 +357,16 @@ class AgentOrchestrator:
         messages = [{"role": "system", "content": _system_prompt(self.user_name, self.account_id)}, *self.history]
         reply = self.llm.complete(messages, tools=self.tools)
 
+        # 取消订阅意图防护：模型对"取消X订阅"误调查询类工具（想先查再取消/意图错配）→ 引导指定项目，
+        # 不执行查询、不自动取消；取消必须走 cancel_subscription 黄色确认（安全底线，不依赖模型工具选择）
+        if _wants_cancel_subscription(user_msg) and reply.tool_calls:
+            if reply.tool_calls[0]["name"] in _QUERY_TOOLS:
+                msg = ("识别到你想取消订阅。为避免误操作，请告诉我要取消的具体项目（如「取消某某视频」），"
+                       "或到「订阅」Tab 一键取消（同样走黄色安全确认）。")
+                self.history.append({"role": "assistant", "content": msg})
+                self._log(user_msg, "", {}, "yellow", "guide", "", "取消订阅意图，模型误调查询工具，引导指定项目")
+                return AgentReply("chat", msg)
+
         if not reply.tool_calls and not reply.plan:  # 纯对话（追问/澄清/闲聊）
             text = reply.text or "（无可用操作）"
             is_operation = any(k in user_msg for k in OPERATION_HINTS)
@@ -604,7 +614,7 @@ class AgentOrchestrator:
 
 # 查询类 / 操作类提示词（用于区分"编造查询结果"与"操作类文字复述"）
 QUERY_HINTS = ("余额", "流水", "账单", "年度", "收益", "评估", "对比", "推荐", "明细", "查询", "查", "看看",
-               "还剩", "多少钱", "多少", "订阅", "代扣", "理财", "持仓")
+               "还剩", "多少钱", "多少", "订阅", "代扣", "续费", "提醒", "到期", "理财", "持仓")
 # 注意：整词匹配优先用长词（"退订"而非"订"，避免"订阅"被误判为操作类）
 OPERATION_HINTS = ("转", "AA", "平摊", "挂失", "解挂", "解冻", "冻结", "申购", "赎回", "改密码", "密码", "取消", "退订", "买", "锁定", "申请", "还款", "已付款", "付AA")
 
@@ -787,13 +797,29 @@ _QUERY_FAILOVER: list[tuple[tuple[str, ...], str, object]] = [
      lambda u, acc, uid: {"account_id": acc}),
     (("流水", "交易记录", "交易明细", "明细"), "list_transactions",
      lambda u, acc, uid: {"account_id": acc, "limit": 20}),
-    (("订阅", "代扣", "续费"), "list_subscriptions",
+    (("订阅", "代扣"), "list_subscriptions",
+     lambda u, acc, uid: {"user_id": uid}),
+    (("续费", "续期", "到期", "提醒"), "subscription_reminders",
      lambda u, acc, uid: {"user_id": uid}),
     (("理财", "在售", "持仓", "收益"), "wealth_products",
      lambda u, acc, uid: {"user_id": uid}),
     (("待付", "AA分摊", "收款进度"), "list_pending_splits",
      lambda u, acc, uid: {"account_id": acc}),
 ]
+
+
+_QUERY_TOOLS = {t for _, t, _ in _QUERY_FAILOVER} | {
+    "query_balance", "list_transactions", "list_subscriptions",
+    "subscription_reminders", "detect_subscriptions", "analyze_bills", "annual_report",
+    "list_pending_splits", "wealth_products", "wealth_recommend", "risk_quiz_submit",
+}
+
+
+def _wants_cancel_subscription(user_msg: str) -> bool:
+    """明确取消订阅意图（含"取消/退订/不再续费" + 订阅/代扣语境）。"""
+    cancel = any(k in user_msg for k in ("取消", "退订", "不再续费", "停掉", "关掉"))
+    sub = any(k in user_msg for k in ("订阅", "代扣", "会员", "续费"))
+    return cancel and sub
 
 
 def _query_failover(user_msg: str, account_id: str, user_id: int):
