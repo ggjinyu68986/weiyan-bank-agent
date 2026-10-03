@@ -649,6 +649,26 @@ def test_chat_confirm_directly():
     assert not o._pending
 
 
+def test_chat_confirm_no_partial_trigger():
+    """包含性消息（'是不是'）不误触发对话确认；'是的'可精确确认。"""
+    o = make()
+    o.llm = WealthToolLLM("freeze_card", {"card_id": "C-0001"})
+    r = o.handle("冻结卡片C-0001")
+    assert r.requires == "confirm" and o._pending
+    # "是不是" 含"是"但非精确匹配 → 不能误触发确认（走 LLM）
+    o.llm = MockLLM()
+    out = o.handle("是不是已经确认了")
+    assert not out.requires in ("auto",) or o._pending  # 至少不直接执行冻结
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "active"
+    # "是的" 精确确认 → 直接执行
+    o.llm = WealthToolLLM("freeze_card", {"card_id": "C-0001"})
+    out2 = o.handle("是的")
+    assert out2.requires == "auto" and "冻结" in out2.message
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "frozen"
+
+
 def test_chat_reject_cancels_pending():
     """对话式拒绝：挂起确认后用户说「取消」→ 放弃操作，无任何变更。"""
     o = make()

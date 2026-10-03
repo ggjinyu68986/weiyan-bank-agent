@@ -163,8 +163,8 @@ RISK_QUIZ_TRIGGERS = ("做风险评估", "做一下风险评估", "风险测评"
 RISK_QUIZ_EXCLUDE = ("查看", "看看", "查询", "结果", "等级", "我的风险")
 
 # 对话式确认：有挂起确认时用户口头同意/拒绝，直接 confirm/放弃（不走 LLM，避免重复弹确认卡）
-CONFIRM_WORDS = ("确认", "同意", "好的", "可以", "行", "是", "没问题", "批准")
-REJECT_WORDS = ("取消", "拒绝", "不办", "不要", "算了", "不了")
+CONFIRM_WORDS = ("确认", "同意", "好的", "可以", "行", "是", "是的", "对", "没错", "没问题", "批准", "确认执行", "好")
+REJECT_WORDS = ("取消", "拒绝", "不办", "不要", "算了", "不了", "不确认")
 
 
 def _match_quiz_option(user_msg: str, options: list) -> str | None:
@@ -323,13 +323,15 @@ class AgentOrchestrator:
             self.history.append({"role": "assistant", "content": out.message})
             return out
         # 对话式确认：存在挂起确认时，口头同意 → 直接 confirm；口头拒绝 → 放弃（不重走 LLM）
-        if self._pending and any(k in user_msg for k in CONFIRM_WORDS):
+        # 精确匹配（去标点），防止"是不是/我是小明"等包含性误触发
+        _m = user_msg.strip().rstrip("。！!？?，,、 ").lstrip()
+        if self._pending and _m in CONFIRM_WORDS:
             pid = list(self._pending)[-1]  # 最近一个挂起
             out = self.confirm(pid)
             self.history.append({"role": "user", "content": user_msg})
             self.history.append({"role": "assistant", "content": out.message})
             return out
-        if self._pending and any(k in user_msg for k in REJECT_WORDS):
+        if self._pending and _m in REJECT_WORDS:
             pid = list(self._pending)[-1]
             self._pending.pop(pid)
             out = AgentReply("chat", "已取消本次操作，未产生任何变更。")
