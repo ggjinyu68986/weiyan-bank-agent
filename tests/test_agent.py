@@ -718,6 +718,55 @@ def test_card_op_deterministic():
     assert any(rec.tool == "adjust_card_limit" for rec in o.audit)
 
 
+def test_birthday_dag_deterministic():
+    """生日联动确定性 DAG：锁定1000 → 鲜花200 → 蛋糕150，逐节点黄色确认；取消中途可回退。"""
+    o = make()
+    out = o.handle("我爱人生日，当月锁定1000元活期，生日前2天订购鲜花蛋糕")
+    assert out.requires == "confirm" and out.pending_id
+    assert "锁定" in out.message  # 第 1 节点：资金锁定
+    # 逐节点确认推进
+    o2 = o.confirm(out.pending_id)
+    assert o2.requires == "confirm"  # 第 2 节点：鲜花
+    o3 = o.confirm(o2.pending_id)
+    assert o3.requires == "confirm"  # 第 3 节点：蛋糕
+    o4 = o.confirm(o3.pending_id)
+    assert o4.requires == "auto" and "全部完成" in o4.message
+    acc = o.service.store.accounts["6222-0001"]
+    assert acc.locked_cents == 100_000
+    assert len(o.service.store.orders) == 2  # 鲜花 + 蛋糕
+    names = [od.merchant for od in o.service.store.orders.values()]
+    assert "某某鲜花店" in names and "某某蛋糕店" in names
+    assert any(rec.action == "plan" for rec in o.audit)
+
+
+def test_birthday_plan_abort_midway():
+    """跨场景联动中断/回退：第 2 节点取消 → 第 1 节点已生效，其余未执行（人工接管边界）。"""
+    o = make()
+    out = o.handle("我爱人生日，当月锁定1000元活期，生日前2天订购鲜花蛋糕")
+    o2 = o.confirm(out.pending_id)  # 确认锁定 → 返回第 2 节点（鲜花）确认卡
+    assert o2.requires == "confirm" and "订购" in o2.message
+    # 用户在第 2 节点拒绝 → 放弃剩余计划（含取消 pending）
+    pid = o2.pending_id
+    o._pending.pop(pid, None)  # 模拟用户拒绝：放弃待确认
+    acc = o.service.store.accounts["6222-0001"]
+    assert acc.locked_cents == 100_000  # 已执行节点保留
+    assert len(o.service.store.orders) == 0  # 未执行节点没有副作用
+
+
+def test_birthday_event_engine_trigger():
+    """事件引擎：拨动时间到生日前 2 天（12/18）→ 自动订购鲜花+蛋糕。"""
+    o = make()
+    r = o.service.run_due_events("2026-12-18")
+    assert r.ok and r.data["fired_count"] == 1
+    ev = next(e for e in o.service.store.events.values() if e.id == "E-001")
+    assert ev.fired
+    orders = [od.merchant for od in o.service.store.orders.values()]
+    assert "某某鲜花店" in orders and "某某蛋糕店" in orders
+    # 幂等：再次触发不再重复下单
+    r2 = o.service.run_due_events("2026-12-19")
+    assert r2.ok and r2.data["fired_count"] == 0
+
+
 def test_subscription_reminder_failover_no_fabrication():
     """模型未调工具时，"续费提醒" 规则兜底 → subscription_reminders 真实数据（不编造日期）。"""
     o = make()  # MockLLM：纯文本不调工具

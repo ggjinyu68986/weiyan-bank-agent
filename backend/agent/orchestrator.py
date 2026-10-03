@@ -357,6 +357,13 @@ class AgentOrchestrator:
         messages = [{"role": "system", "content": _system_prompt(self.user_name, self.account_id)}, *self.history]
         reply = self.llm.complete(messages, tools=self.tools)
 
+        # 跨场景联动（确定性 DAG）：生日联动意图 → 3 节点计划（锁定→鲜花→蛋糕），
+        # 逐节点过权限门（黄级确认），零模型依赖、审计同源；真实 LLM 层不支持 plan 输出，编排层兜底
+        bd_plan = _birthday_plan(user_msg, self.account_id)
+        if bd_plan:
+            self._log(user_msg, "", {}, "yellow", "plan", "", "确定性构造生日联动 DAG（3 节点，锁定→鲜花→蛋糕）")
+            return self._run_plan(bd_plan, user_msg, st)
+
         # 取消订阅意图防护：模型对"取消X订阅"误调查询类工具（想先查再取消/意图错配）→ 引导指定项目，
         # 不执行查询、不自动取消；取消必须走 cancel_subscription 黄色确认（安全底线，不依赖模型工具选择）
         if _wants_cancel_subscription(user_msg) and reply.tool_calls:
@@ -820,6 +827,31 @@ def _wants_cancel_subscription(user_msg: str) -> bool:
     cancel = any(k in user_msg for k in ("取消", "退订", "不再续费", "停掉", "关掉"))
     sub = any(k in user_msg for k in ("订阅", "代扣", "会员", "续费"))
     return cancel and sub
+
+
+def _birthday_plan(user_msg: str, account_id: str) -> list[dict] | None:
+    """确定性生日联动 DAG（场景6）：命中生日联动意图 → 锁定预算 → 订购鲜花 → 订购蛋糕。
+    n2/n3 依赖 n1（资金先锁定再下单），逐节点过权限门（黄级确认）。
+    金额优先解析用户指定（如"锁定1000元"），未指定用演示默认：1000 / 200 / 150 元。"""
+    birthday = "生日" in user_msg and any(k in user_msg for k in ("爱人", "老婆", "她的"))
+    lock_order = any(k in user_msg for k in ("锁定", "预留", "预算")) and any(
+        k in user_msg for k in ("鲜花", "蛋糕", "订购", "礼物"))
+    if not (birthday or lock_order):
+        return None
+    m2 = re.search(r"(\d+)\s*[元块]", user_msg)
+    lock_yuan = int(m2.group(1)) if m2 else 1000
+    flower = max(1, round(lock_yuan * 0.2))
+    cake = max(1, round(lock_yuan * 0.15))
+    return [
+        {"id": "n1", "tool": "lock_funds",
+         "params": {"account_id": account_id, "amount_cents": lock_yuan * 100, "note": "爱人生日预算"}},
+        {"id": "n2", "tool": "order_gift",
+         "params": {"account_id": account_id, "merchant": "某某鲜花店",
+                    "amount_cents": flower * 100, "note": "爱人生日礼物"}, "depends": ["n1"]},
+        {"id": "n3", "tool": "order_gift",
+         "params": {"account_id": account_id, "merchant": "某某蛋糕店",
+                    "amount_cents": cake * 100, "note": "爱人生日蛋糕"}, "depends": ["n1"]},
+    ]
 
 
 def _query_failover(user_msg: str, account_id: str, user_id: int):
