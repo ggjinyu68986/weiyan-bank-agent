@@ -635,6 +635,33 @@ def test_unlock_card_mfa():
     assert card.status == "active"
 
 
+def test_chat_confirm_directly():
+    """对话式确认：挂起确认后用户说「确认」直接执行（不再走 LLM 重复弹卡）。"""
+    o = make()
+    o.llm = WealthToolLLM("freeze_card", {"card_id": "C-0001"})
+    r = o.handle("冻结卡片C-0001")
+    assert r.requires == "confirm" and r.pending_id
+    out = o.handle("确认")  # 不走 LLM（MockLLM 会编造），直接 confirm
+    assert out.requires == "auto" and "冻结" in out.message
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "frozen"
+    # 确认后 pending 已清空，说"好的"不再误触发
+    assert not o._pending
+
+
+def test_chat_reject_cancels_pending():
+    """对话式拒绝：挂起确认后用户说「取消」→ 放弃操作，无任何变更。"""
+    o = make()
+    o.llm = WealthToolLLM("freeze_card", {"card_id": "C-0001"})
+    r = o.handle("冻结卡片C-0001")
+    assert r.requires == "confirm"
+    out = o.handle("取消")
+    assert out.requires == "chat" and "已取消" in out.message
+    card = next(c for c in o.service.store.cards.values() if c.id == "C-0001")
+    assert card.status == "active"  # 未冻结
+    assert not o._pending
+
+
 def test_card_op_deterministic():
     """按钮确定性路由（不依赖 LLM）：冻结→确认；挂失→MFA；额度调整→MFA。"""
     o = make()
