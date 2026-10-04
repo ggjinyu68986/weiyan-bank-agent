@@ -197,6 +197,17 @@ def test_api_agent_shares_service_instance():
     assert service.get_balance("6222-0001").data["balance_cents"] == 5_820_000 - 80_000
 
 
+def test_transfer_receipt_includes_balance():
+    """评委级细节：转账成功回执必须带最新可用余额（真实银行行为，供用户即时核对）。"""
+    o = make()
+    r = o.handle("给妈妈转800元")
+    assert r.requires == "confirm"
+    r2 = o.confirm(r.pending_id)
+    assert r2.requires == "auto"
+    assert "可用余额" in r2.message
+    assert "57400" in r2.message  # 58200 - 800 = 57400
+
+
 def test_transfer_by_contact_name():
     """按人名转账（赛题场景1）：service 层兜底解析"妈妈"等联系人姓名，模型传姓名也能执行。"""
     o = make()

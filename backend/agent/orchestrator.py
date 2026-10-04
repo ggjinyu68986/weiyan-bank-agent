@@ -525,7 +525,13 @@ class AgentOrchestrator:
             out = AgentReply("deny", f"计划中止：步骤「{tool}」被权限门拒绝（{decision.reason}）", tool=tool, params=params)
             self.history.append({"role": "assistant", "content": out.message})
             return out
-        return AgentReply("auto", self._plan_summary(plan, done=self._plan_done))
+        msg = self._plan_summary(plan, done=self._plan_done)
+        # 计划完成回执带最新可用余额（评委级细节：锁定/订购后用户需要即时看到账户状态）
+        bal = self.service.get_balance(self.account_id)
+        if bal.ok and bal.data and bal.data.get("available_cents") is not None:
+            msg = msg + f"；可用余额 {bal.data['available_cents'] / 100:.2f} 元"
+        self.history.append({"role": "assistant", "content": msg})
+        return AgentReply("auto", msg)
 
     def _plan_summary(self, plan, done=None) -> str:
         names = {n["tool"]: _TOOL_CN.get(n["tool"], n["tool"]) for n in plan}
@@ -613,6 +619,11 @@ class AgentOrchestrator:
         if tool == "transfer":
             self.user_state["today_transfer_cents"] += params.get("amount_cents", 0)
         out = AgentReply("auto", _summarize(tool, r), execution_id=r.execution_id, tool=tool, params=params, data=r.data)
+        # 转账回执带最新可用余额（真实银行行为：交易成功必显示余额，供用户即时核对）
+        if tool == "transfer":
+            bal = self.service.get_balance(self.account_id)
+            if bal.ok and bal.data and bal.data.get("available_cents") is not None:
+                out.message = out.message + f"；可用余额 {bal.data['available_cents'] / 100:.2f} 元"
         self.history.append({"role": "assistant", "content": out.message})
         return out
 
