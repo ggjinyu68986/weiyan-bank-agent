@@ -53,6 +53,23 @@ def _next_run(p: dict) -> str | None:
         d = resolve_time_expr(p["next_run_expr"])
         return d.isoformat() if d else None
     return None
+# 安全合规：执行前强制校验身份参数（防越权查询 / 代他人操作 / 资金操作他人账户）。
+# 带 account_id 且语义为「本人账户」的工具 → 必须等于会话账户，否则 deny。
+_ACCOUNT_PIN = {
+    "query_balance": ("account_id",), "list_transactions": ("account_id",),
+    "analyze_bills": ("account_id",), "annual_report": ("account_id",),
+    "split_bill": ("account_id",), "split_bill_status": ("account_id",),
+    "pay_split_bill": ("account_id",), "list_pending_splits": ("account_id",),
+    "detect_subscriptions": ("account_id",), "lock_funds": ("account_id",),
+    "order_gift": ("account_id",),
+    "transfer": ("from_account_id",), "schedule_transfer": ("from_account_id",),
+}
+_USER_PIN = {
+    "list_contacts", "add_contact", "wealth_products", "wealth_recommend", "risk_assessment",
+    "risk_submit", "buy_wealth", "redeem_wealth", "apply_virtual_card", "change_password",
+    "list_subscriptions", "subscription_reminders",
+}
+
 EXECUTORS = {
     # 场景1：智能转账
     "list_contacts": lambda svc, p: svc.list_contacts(p.get("user_id", 1)),
@@ -345,6 +362,21 @@ class AgentOrchestrator:
             self.history.append({"role": "assistant", "content": out.message})
             return out
 
+        # 安全合规预检（先于 LLM，不依赖模型自觉）：
+        # ① 越权账户意图 → 直接拒绝
+        _um = user_msg.strip()
+        if _USURP_RE.search(_um):
+            out = AgentReply("deny", "安全拦截：仅能操作您本人的账户，已拒绝针对他人账户的操作请求。")
+            self._log(user_msg, "", {}, "red", "deny", "", "越权账户操作意图（用户消息预检）被拦截")
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+        # ② 社会工程诱导（中奖/免验证/冒充身份/忽略指令）+ 资金动词 → 高危拦截
+        if _is_high_risk_social(_um):
+            out = AgentReply("deny", "安全拦截：检测到疑似诱导转账请求（社会工程攻击），已拦截。如确需转账，请通过本人确认流程发起。")
+            self._log(user_msg, "", {}, "red", "deny", "", "社会工程诱导转账意图被拦截")
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+
         # 对话式风险评估问卷：进行中 → 本轮消息视为答案（支持取消/错误重问）
         if st.get("risk_quiz"):
             out = self._advance_risk_quiz(user_msg, st)
@@ -456,6 +488,31 @@ class AgentOrchestrator:
                 return self._record_suspicious(user_msg, "", {}, msg, st, jev)
             out = AgentReply("chat", text)
             self._log(user_msg, "", {}, "", "chat", "", out.message)
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
+
+        # 工具正确性兜底：业务意图被路由成 list_contacts 展示 → 内部重试，引导调用目标业务工具
+        if reply.tool_calls and reply.tool_calls[0]["name"] == "list_contacts" and _wants_business_intent(user_msg):
+            self.history.append({
+                "role": "assistant",
+                "content": "（系统提示）用户请求的是业务操作或查询（转账、余额、流水、账单、理财申购、订阅、卡片等），"
+                           "不是查看联系人列表。请直接调用对应业务工具（转账→transfer、余额→query_balance、"
+                           "申购→buy_wealth、订阅→list_subscriptions 等）；收款人不在联系人簿时向用户询问确认，"
+                           "不要调用 list_contacts。",
+            })
+            self._log(user_msg, "list_contacts", {}, "yellow", "reroute", "",
+                      "业务意图误路由到联系人列表，系统自动重试引导")
+            retry = self.llm.complete(
+                [{"role": "system", "content": _system_prompt(self.user_name, self.account_id)}, *self.history],
+                tools=self.tools,
+            )
+            if retry.tool_calls and retry.tool_calls[0]["name"] != "list_contacts":
+                return self._route_tool(retry, user_msg, st)
+            # 重试仍查列表 → 强制澄清/引导（不猜测账户、不展示列表应付）
+            self.history.pop()  # 移除重试提示，避免污染历史
+            out = AgentReply("chat", "请直接描述您要办理的业务（如「给XX转Y元」并给出对方的账户号或手机号）。"
+                                      "收款人不在联系人簿时，我需要您提供准确的收款账户信息，不会猜测执行。")
+            self._log(user_msg, "list_contacts", {}, "yellow", "clarify", "", "误路由后强制澄清，不猜测执行")
             self.history.append({"role": "assistant", "content": out.message})
             return out
 
@@ -604,6 +661,21 @@ class AgentOrchestrator:
 
     # ---------- 内部 ----------
     def _execute(self, tool: str, params: dict, user_msg: str, reason: str) -> AgentReply:
+        # 安全合规：越权参数直接拒绝（绝不静默替换——替换会误导用户以为在操作他人账户）
+        for key in _ACCOUNT_PIN.get(tool, ()):
+            v = params.get(key)
+            if v and str(v) != self.account_id:
+                out = AgentReply("deny", f"安全拦截：仅能操作您本人的账户（{self.account_id}），已拒绝访问账户 {v}。")
+                self._log(user_msg, tool, params, "red", "deny", "", "越权账户访问被拦截")
+                self.history.append({"role": "assistant", "content": out.message})
+                return out
+        if tool in _USER_PIN:
+            uv = params.get("user_id")
+            if uv and int(uv) != self.user_id:
+                out = AgentReply("deny", f"安全拦截：仅能操作您本人的账户，已拒绝代他人操作（用户 {uv}）。")
+                self._log(user_msg, tool, params, "red", "deny", "", "代他人操作被拦截")
+                self.history.append({"role": "assistant", "content": out.message})
+                return out
         ex = EXECUTORS.get(tool)
         if not ex:
             out = AgentReply("deny", f"工具「{tool}」已注册但尚未实现")
@@ -759,7 +831,7 @@ def _summarize(tool: str, r) -> str:
         ) or "暂无持仓"
         return f"在售 {len(d['products'])} 款产品：{prods}；当前持仓：{holdings}"
     if tool in ("buy_wealth", "redeem_wealth"):
-        return f"{r.message} {d['amount_cents'] / 100:.2f} 元"
+        return f"{r.message} {d['amount_cents'] / 100:.2f} 元（提示：理财非存款，产品有风险，收益不保证）"
     if tool == "apply_virtual_card":
         return f"虚拟卡申请成功：{d['card_id']}（日限额 {d['daily_limit_cents'] / 100:.2f} 元）"
     if tool == "adjust_card_limit":
@@ -892,6 +964,29 @@ def _birthday_plan(user_msg: str, account_id: str) -> list[dict] | None:
          "params": {"account_id": account_id, "merchant": "某某蛋糕店",
                     "amount_cents": cake * 100, "note": "爱人生日蛋糕"}, "depends": ["n1"]},
     ]
+
+
+_BUSINESS_INTENT = (
+    "转", "打款", "汇款", "支付", "还钱", "余额", "流水", "账单", "理财",
+    "申购", "赎回", "订阅", "扣费", "挂失", "冻结", "解冻", "限额", "年化", "收益", "AA",
+)
+
+
+def _wants_business_intent(user_msg: str) -> bool:
+    """业务意图检测：转账/查询/申购/卡片/订阅等（用于防 list_contacts 误路由）。"""
+    return any(k in user_msg for k in _BUSINESS_INTENT)
+
+
+# 越权账户意图：他人账户作为资金源/操作对象（「把/从/用/拿 X 的钱/账户/卡…」）→ 立即拒绝
+_USURP_RE = re.compile(r"(把|从|用|拿)(6222-100[2-5]|李太太|王妈妈|张伟|爸爸|小王)[^，。]{0,12}(账户|的钱|的钱包|卡|号|资金|理财)")
+# 社会工程诱导词（中奖/免验证/忽略指令/冒充身份等）→ 与资金动词同时出现时高危拦截
+_SOCIAL_ENGINEERING = ("中奖", "分你一半", "事成", "免验证", "验证码已经输过", "验证码已输", "直接转",
+                       "忽略", "管理员", "柜员", "已授权", "不要验证", "无需确认", "系统指令", "提升权限")
+_FUND_VERBS = ("转", "打款", "汇款", "支付", "买", "申购", "提", "取")
+
+
+def _is_high_risk_social(user_msg: str) -> bool:
+    return any(k in user_msg for k in _SOCIAL_ENGINEERING) and any(v in user_msg for v in _FUND_VERBS)
 
 
 def _query_failover(user_msg: str, account_id: str, user_id: int):
