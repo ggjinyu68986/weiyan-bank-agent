@@ -182,6 +182,8 @@ RISK_QUIZ_EXCLUDE = ("查看", "看看", "查询", "结果", "等级", "我的�
 # 对话式确认：有挂起确认时用户口头同意/拒绝，直接 confirm/放弃（不走 LLM，避免重复弹确认卡）
 CONFIRM_WORDS = ("确认", "同意", "好的", "可以", "行", "是", "是的", "对", "没错", "没问题", "批准", "确认执行", "好")
 REJECT_WORDS = ("取消", "拒绝", "不办", "不要", "算了", "不了", "不确认")
+# 拒绝意图包含匹配（防止「算了不转了」「别转了」因未精确命中而误执行）
+REJECT_SUB = ("算了", "不转", "别转", "不办", "不要", "取消", "拒绝", "不了", "撤销", "别了", "不弄")
 
 
 def _match_quiz_option(user_msg: str, options: list) -> str | None:
@@ -386,20 +388,23 @@ class AgentOrchestrator:
         # 对话式确认：存在挂起确认时，口头同意 → 直接 confirm；口头拒绝 → 放弃（不重走 LLM）
         # 精确匹配（去标点），防止"是不是/我是小明"等包含性误触发
         _m = user_msg.strip().rstrip("。！!？?，,、 ").lstrip()
-        if self._pending and _m in CONFIRM_WORDS:
-            pid = list(self._pending)[-1]  # 最近一个挂起
-            out = self.confirm(pid)
-            self.history.append({"role": "user", "content": user_msg})
-            self.history.append({"role": "assistant", "content": out.message})
-            return out
-        if self._pending and _m in REJECT_WORDS:
-            pid = list(self._pending)[-1]
-            self._pending.pop(pid)
-            out = AgentReply("chat", "已取消本次操作，未产生任何变更。")
-            self._log(user_msg, "", {}, "yellow", "cancel", "", "用户在确认环节取消操作")
-            self.history.append({"role": "user", "content": user_msg})
-            self.history.append({"role": "assistant", "content": out.message})
-            return out
+        if self._pending:
+            # 先判拒绝（包含匹配，防止「算了不转了」未命中精确词而误执行）
+            if any(w in _m for w in REJECT_SUB):
+                pid = list(self._pending)[-1]
+                self._pending.pop(pid)
+                out = AgentReply("chat", "已取消本次操作，未产生任何变更。")
+                self._log(user_msg, "", {}, "yellow", "cancel", "", "用户在确认环节取消操作")
+                self.history.append({"role": "user", "content": user_msg})
+                self.history.append({"role": "assistant", "content": out.message})
+                return out
+            # 再判确认：短确认词精确匹配；长确认词包含匹配
+            if _m in CONFIRM_WORDS or any(w in _m for w in ("确认执行", "没问题", "好的", "可以", "同意", "批准", "没错")):
+                pid = list(self._pending)[-1]
+                out = self.confirm(pid)
+                self.history.append({"role": "user", "content": user_msg})
+                self.history.append({"role": "assistant", "content": out.message})
+                return out
 
         if any(k in user_msg for k in RISK_QUIZ_TRIGGERS) and not any(e in user_msg for e in RISK_QUIZ_EXCLUDE):
             st["risk_quiz"] = {"answers": {}, "q_index": 0}
@@ -469,10 +474,18 @@ class AgentOrchestrator:
                               f"模型未调用工具，规则兜底路由命中「{tool}」，直接执行真实查询")
                     return self._route_tool(_FO_REPLY(tool, params), user_msg, st)
                 if is_operation:
-                    out = AgentReply(
-                        "chat",
-                        "我还没有执行任何操作。请允许我通过工具为你办理——你可以再对我说一次，我会先展示操作详情待你确认。",
-                    )
+                    if _wants_business_intent(user_msg):
+                        out = AgentReply(
+                            "chat",
+                            "好的，请问您想办理哪项业务？我可以为您调用对应的工具办理。转账请告诉我"
+                            "「转给谁、金额多少」；也可以直接说：查余额、查账单、买理财、管理卡片或订阅"
+                            "（操作前会先展示详情待您确认）。",
+                        )
+                    else:
+                        out = AgentReply(
+                            "chat",
+                            "我还没有执行任何操作。请允许我通过工具为你办理——你可以再对我说一次，我会先展示操作详情待你确认。",
+                        )
                 else:
                     out = AgentReply(
                         "chat",
@@ -527,6 +540,13 @@ class AgentOrchestrator:
 
         tc = reply.tool_calls[0]
         tool, params = tc["name"], tc.get("arguments", {})
+        # 交互体验/安全：金额类工具必须能从用户消息溯源金额，否则追问（禁止模型臆造金额执行）
+        if tool in _AMOUNT_TOOLS and not user_msg.startswith("[按钮]") and not _AMOUNT_RE.search(user_msg):
+            out = AgentReply("chat", "请问金额是多少？请告诉我具体金额（如「给妈妈转500元」「买1000元理财」），"
+                                     "我不会猜测金额执行。")
+            self._log(user_msg, tool, params, "?", "clarify", "", "金额类操作缺少金额信息，系统追问（不猜测执行）")
+            self.history.append({"role": "assistant", "content": out.message})
+            return out
         decision, jev = self._decide(tool, params, st)
         risk = decision.spec.get("risk", "?") if decision.spec else "?"
         route = self.decision.route_check(user_msg, tool, risk)  # 路由校验（记录型）
@@ -970,6 +990,10 @@ _BUSINESS_INTENT = (
     "转", "打款", "汇款", "支付", "还钱", "余额", "流水", "账单", "理财",
     "申购", "赎回", "订阅", "扣费", "挂失", "冻结", "解冻", "限额", "年化", "收益", "AA",
 )
+
+
+_AMOUNT_TOOLS = {"transfer", "schedule_transfer", "buy_wealth", "redeem_wealth", "split_bill"}
+_AMOUNT_RE = re.compile(r"\d+(?:[.．]\d+)?")
 
 
 def _wants_business_intent(user_msg: str) -> bool:
